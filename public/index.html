@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rummy</title>
+<style>
+  :root{
+    --red:#ff5757; --green:#33d17a; --yellow:#ffc233; --blue:#5b8cff;
+    --txt:#eef0ff; --mut:#8f97bd; --glassbd:rgba(255,255,255,.1);
+    --crimson:#d8362f; --ink:#232946;
+    --ease:cubic-bezier(.2,0,0,1);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+  body{
+    margin:0; min-height:100vh; color:var(--txt);
+    background:
+      radial-gradient(700px 420px at 12% -6%, rgba(255,194,51,.16), transparent 60%),
+      radial-gradient(700px 420px at 88% 4%, rgba(51,209,122,.14), transparent 60%),
+      linear-gradient(180deg,#141833 0%, #0d1024 60%, #0a0d1e 100%);
+    font-family:'Avenir Next','Segoe UI',system-ui,-apple-system,sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:18px 12px 40px;
+  }
+  .wordmark{ font-weight:900; letter-spacing:.14em; font-size:27px; margin:6px 0 2px; text-align:center;
+    text-shadow:0 2px 12px rgba(0,0,0,.6); }
+  .wordmark.small{ font-size:17px; margin:0 0 10px; }
+  .wordmark .w1{color:var(--yellow)} .wordmark .w2{color:var(--txt)}
+  .roomtag{ font-size:12px; color:var(--mut); letter-spacing:.1em; margin-left:10px; }
+  .tagline{ color:var(--mut); font-size:13px; margin-bottom:14px; text-align:center; }
+  .arcadelink{ display:flex; width:fit-content; align-items:center; gap:6px; margin:0 auto 14px;
+    font-size:12.5px; font-weight:800; letter-spacing:.05em; color:var(--mut);
+    text-decoration:none; border:1px solid rgba(255,255,255,.14); border-radius:999px;
+    padding:7px 14px; background:rgba(255,255,255,.04); }
+  .arcadelink:hover{ color:var(--txt); border-color:rgba(255,255,255,.3); }
+  .panel{ width:100%; max-width:460px; background:rgba(26,30,52,.72); backdrop-filter:blur(14px);
+    border-radius:22px; border:1px solid var(--glassbd); box-shadow:0 20px 44px rgba(0,0,0,.45); padding:20px; }
+  .label{ font-size:11.5px; font-weight:800; letter-spacing:.12em; color:var(--mut); margin-bottom:7px; text-transform:uppercase; }
+  input{ width:100%; padding:13px 15px; font-size:16.5px; border-radius:13px;
+    border:1px solid rgba(255,255,255,.14); background:rgba(13,16,36,.7); outline:none;
+    font-family:inherit; font-weight:600; color:var(--txt); }
+  input.code{ text-transform:uppercase; letter-spacing:.28em; font-family:ui-monospace,Menlo,monospace; }
+  input:focus{ border-color:rgba(255,194,51,.6); box-shadow:0 0 0 3px rgba(255,194,51,.15); }
+  .btn{ width:100%; padding:14px 16px; font-size:16.5px; font-weight:800; border-radius:14px;
+    border:none; cursor:pointer; font-family:inherit; color:#fff;
+    transition:transform .12s var(--ease); box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 22px rgba(0,0,0,.35); }
+  .btn:active{ transform:translateY(2px) scale(.985); }
+  .btn:disabled{ opacity:.45; }
+  .btn.gold{ background:linear-gradient(180deg,#ffd257,#f5a91b); color:#241a00; box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 24px rgba(255,194,51,.4); }
+  .btn.blue{ background:linear-gradient(180deg,#6f9aff,#4a76ea); box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 24px rgba(91,140,255,.4); }
+  .btn.green{ background:linear-gradient(180deg,#4fe08f,#1ea75c); box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 24px rgba(51,209,122,.35); }
+  .btn.red{ background:linear-gradient(180deg,#ff7a7a,#e84040); box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 24px rgba(255,87,87,.35); }
+  .btn.plain{ background:rgba(255,255,255,.08); color:var(--txt); border:1px solid rgba(255,255,255,.12); }
+  .btn.small{ width:auto; padding:9px 14px; font-size:14px; border-radius:11px; }
+  .divider{ display:flex; align-items:center; gap:10px; margin:16px 0; }
+  .divider .line{ flex:1; height:1px; background:rgba(255,255,255,.14); }
+  .divider .txt{ font-size:11.5px; font-weight:800; color:var(--mut); letter-spacing:.1em; }
+  .hint{ margin-top:16px; color:var(--mut); font-size:13px; text-align:center; max-width:400px; line-height:1.55; }
+  .avrow{ display:flex; gap:7px; flex-wrap:wrap; }
+  .avchip{ width:44px; height:44px; border-radius:13px; border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06); font-size:22px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .avchip.on{ border-color:rgba(255,194,51,.9); background:rgba(255,194,51,.14); }
+  .playerrow{ display:flex; align-items:center; gap:10px; padding:11px 13px;
+    background:rgba(255,255,255,.05); border-radius:13px; border:1px solid rgba(255,255,255,.09);
+    font-weight:700; margin-bottom:8px; }
+  .playerrow .who{ flex:1; }
+  .hosttag{ font-size:10.5px; font-weight:800; color:var(--yellow); letter-spacing:.08em; }
+  .tokrow{ display:flex; gap:8px; flex-wrap:wrap; }
+  .tokbtn{ flex:1; min-width:120px; padding:11px 8px; font-size:14px; font-weight:800; border-radius:12px;
+    border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); cursor:pointer; font-family:inherit; color:var(--txt); }
+  .setnote{ font-size:12px; color:var(--mut); font-weight:600; margin-top:7px; line-height:1.5; }
+  .mt10{margin-top:10px}.mt12{margin-top:12px}.mt18{margin-top:18px}
+  .hidden{ display:none !important; }
+  .confetti{ position:fixed; inset:0; pointer-events:none; z-index:80; overflow:hidden; }
+  .confetti i{ position:absolute; top:-4vh; width:9px; height:14px; border-radius:2px; opacity:.95;
+    animation:cfall linear forwards; }
+  @keyframes cfall{ to{ transform:translateY(108vh) rotate(720deg); opacity:.7; } }
+  @keyframes jshake{ 0%,100%{transform:translate(0,0)} 20%{transform:translate(-6px,2px)} 40%{transform:translate(5px,-3px)} 60%{transform:translate(-4px,-2px)} 80%{transform:translate(3px,2px)} }
+  .jshake{ animation:jshake .38s ease; }
+  @media (prefers-reduced-motion:no-preference){
+    body::before, body::after{ content:""; position:fixed; border-radius:50%; filter:blur(72px);
+      pointer-events:none; z-index:-1; }
+    body::before{ width:46vw; height:46vw; background:rgba(255,194,51,.16); top:-12vw; left:-10vw;
+      animation:drift1 26s ease-in-out infinite alternate; }
+    body::after{ width:42vw; height:42vw; background:rgba(51,209,122,.13); bottom:-12vw; right:-10vw;
+      animation:drift2 31s ease-in-out infinite alternate; }
+    @keyframes drift1{ to{ transform:translate(9vw,7vh) scale(1.15); } }
+    @keyframes drift2{ to{ transform:translate(-8vw,-6vh) scale(1.12); } }
+    .btn, .pill, .pc, .grp{ will-change:transform; }
+  }
+
+  /* ---- playing cards: white frame, cream field, outlined indices ---- */
+  .pc{ position:relative; background:#fff; border:none; border-radius:10px; padding:3.5px; flex:none;
+    width:54px; height:78px; box-shadow:0 2.5px 0 rgba(0,0,0,.28), 0 10px 20px rgba(0,0,0,.45);
+    cursor:pointer; transition:transform .16s var(--ease), box-shadow .2s, outline-color .15s; }
+  .pc .pf{ position:absolute; inset:3.5px; border-radius:7px; overflow:hidden; z-index:0;
+    background:radial-gradient(130% 100% at 30% 15%, #fffdf6 0%, #f6f1e2 60%, #e9e2cc 100%); }
+  .pc .pf::after{ content:""; position:absolute; inset:0;
+    background:linear-gradient(160deg, rgba(255,255,255,.7) 0%, transparent 38%); }
+  .pc .ix{ position:absolute; z-index:2; top:4px; left:5px; line-height:.95; font-weight:900;
+    font-size:13px; text-align:center; }
+  .pc .ix small{ display:block; font-size:11px; }
+  .pc .ix.br{ top:auto; left:auto; bottom:4px; right:5px; transform:rotate(180deg); }
+  .pc .pip{ position:absolute; inset:0; z-index:1; display:flex; align-items:center; justify-content:center;
+    font-size:26px; text-shadow:1.5px 1.5px 0 rgba(0,0,0,.12); }
+  .pc.red .ix, .pc.red .pip{ color:var(--crimson); }
+  .pc.blk .ix, .pc.blk .pip{ color:var(--ink); }
+  .pc.joker .pf{ background:conic-gradient(from 45deg,#f2413a 0 90deg,#f5b70e 0 180deg,#17b364 0 270deg,#3d6ef0 0 360deg); }
+  .pc.joker .pf::after{ content:""; position:absolute; inset:3px; border-radius:5px; background:radial-gradient(120% 100% at 50% 30%, #fffdf6 0%, #f3ecd8 100%); }
+  .pc.joker .pip{ font-size:22px; z-index:2; flex-direction:column; gap:1px; }
+  .pc.joker .pip small{ font-size:8px; font-weight:900; letter-spacing:.12em; color:#7a4bd6; }
+  .pc.joker .ix{ display:none; }
+  .pc.back{ padding:0; cursor:default; background:linear-gradient(160deg,#242a4e,#141833);
+    border:2px solid rgba(255,255,255,.28); display:flex; align-items:center; justify-content:center;
+    color:var(--mut); font-weight:900; font-size:12px; letter-spacing:.08em; }
+  .pc.back .pips{ position:absolute; inset:8px; border-radius:6px; border:2px dashed rgba(255,255,255,.16); }
+  .pc.sel{ transform:translateY(-9px); outline:3px solid var(--yellow); outline-offset:2px;
+    box-shadow:0 2.5px 0 rgba(0,0,0,.28), 0 14px 26px rgba(0,0,0,.5), 0 0 18px rgba(255,194,51,.5); }
+  .pc.wildmark::before{ content:"★"; position:absolute; z-index:3; top:2px; right:4px; font-size:10px; color:#b8860b; }
+  .pc.big{ width:70px; height:102px; border-radius:12px; }
+  .pc.big .pip{ font-size:36px; }
+  .pc.big .ix{ font-size:16px; } .pc.big .ix small{ font-size:13px; }
+
+  /* ---- table area ---- */
+  .strip{ width:100%; max-width:620px; display:flex; gap:7px; flex-wrap:wrap; justify-content:center; margin-bottom:10px; }
+  .pill{ position:relative; display:flex; align-items:center; gap:6px; padding:6px 11px; border-radius:999px;
+    background:rgba(26,30,52,.72); border:1px solid rgba(255,255,255,.1); font-weight:800; font-size:13px; }
+  .pill.turn{ border-color:rgba(255,194,51,.8); box-shadow:0 0 16px rgba(255,194,51,.35); }
+  .pill.gone{ opacity:.4; }
+  .pill .cnt{ background:rgba(255,255,255,.1); border-radius:999px; padding:1px 8px; font-size:12px; }
+  .pill .last{ position:absolute; top:-9px; right:-6px; background:linear-gradient(180deg,#ff7a7a,#e84040);
+    color:#fff; border-radius:999px; font-size:9.5px; font-weight:900; padding:2px 7px; letter-spacing:.04em; }
+  .meta{ width:100%; max-width:620px; display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:8px;
+    font-size:13px; font-weight:800; color:var(--mut); }
+  .timer{ width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-weight:900; font-size:13px; background:conic-gradient(var(--yellow) calc(var(--pct,0)*1%), rgba(255,255,255,.08) 0); }
+  .timer span{ width:35px; height:35px; border-radius:50%; background:#161a33; display:flex; align-items:center; justify-content:center; }
+
+  .table{ width:100%; max-width:620px; display:flex; justify-content:center; align-items:flex-start; gap:26px; margin:6px 0 4px; }
+  .pilecol{ display:flex; flex-direction:column; align-items:center; gap:7px; font-size:12px; color:var(--mut); font-weight:700; }
+  .closedwrap{ position:relative; }
+  .wildpeek{ position:absolute; left:-20px; top:8px; transform:rotate(-90deg); z-index:-1; opacity:.95; }
+  .openfan{ position:relative; width:70px; height:102px; }
+  .openfan .pc{ position:absolute; inset:0; }
+  .openfan .pc.top{ cursor:pointer; }
+  .openfan.glow .pc.top{ box-shadow:0 2.5px 0 rgba(0,0,0,.28), 0 12px 24px rgba(0,0,0,.5), 0 0 20px rgba(51,209,122,.55); }
+  .closedwrap .pc.big.back.glow{ box-shadow:0 2.5px 0 rgba(0,0,0,.28), 0 12px 24px rgba(0,0,0,.5), 0 0 20px rgba(91,140,255,.55); cursor:pointer; }
+  @keyframes dealin{ from{ transform:translateY(16px) scale(.9); opacity:0; } }
+  .grp .pc, .loose .pc{ animation:dealin .3s var(--ease) backwards; animation-delay:var(--dd,0s); }
+  .nodeal .pc{ animation:none !important; }
+  #flyer{ position:fixed; z-index:70; pointer-events:none; transition:transform .32s cubic-bezier(.3,.7,.3,1), opacity .32s; margin:0; }
+
+  /* ---- hand: groups + loose ---- */
+  .handwrap{ width:100%; max-width:620px; margin-top:12px; }
+  .handlabel{ display:flex; justify-content:space-between; align-items:center; font-size:11.5px; font-weight:800;
+    letter-spacing:.1em; color:var(--mut); text-transform:uppercase; padding:0 4px 6px; }
+  .groups{ display:flex; flex-wrap:wrap; gap:9px; justify-content:center; }
+  .grp{ position:relative; display:flex; gap:5px; padding:14px 8px 8px; border-radius:14px;
+    background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.1); cursor:pointer; }
+  .grp.valid-pure{ border-color:rgba(51,209,122,.65); }
+  .grp.valid-seq{ border-color:rgba(91,140,255,.6); }
+  .grp.valid-set{ border-color:rgba(255,194,51,.55); }
+  .grp.invalid{ border-color:rgba(255,87,87,.45); }
+  .grp .gtag{ position:absolute; top:-8px; left:10px; font-size:9.5px; font-weight:900; letter-spacing:.06em;
+    padding:2px 8px; border-radius:999px; background:#161a33; border:1px solid rgba(255,255,255,.14); color:var(--mut); }
+  .grp.valid-pure .gtag{ color:#4fe08f; border-color:rgba(51,209,122,.5); }
+  .grp.valid-seq .gtag{ color:#8cabff; border-color:rgba(91,140,255,.5); }
+  .grp.valid-set .gtag{ color:var(--yellow); border-color:rgba(255,194,51,.5); }
+  .grp.invalid .gtag{ color:#ff8a8a; border-color:rgba(255,87,87,.4); }
+  .loose{ display:flex; flex-wrap:wrap; gap:6px; justify-content:center; padding:12px 6px 8px; }
+  .handactions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:10px; }
+  .handactions .btn{ width:auto; }
+  .actionhint{ width:100%; max-width:620px; text-align:center; font-size:13.5px; font-weight:700; color:var(--mut); margin-top:10px; min-height:20px; }
+  .actionhint b{ color:var(--txt); }
+  .log{ width:100%; max-width:620px; margin-top:10px; background:rgba(26,30,52,.72); border:1px solid var(--glassbd);
+    border-radius:15px; padding:11px 15px; font-size:13.5px; font-weight:700; text-align:center; }
+  .wildline{ display:flex; align-items:center; gap:8px; justify-content:center; font-size:12.5px; font-weight:800; color:var(--mut); margin-top:6px; }
+  .wildline b{ color:var(--yellow); }
+
+  .overbox{ text-align:center; margin-top:12px; width:100%; max-width:620px; }
+  @keyframes cuppop{ 0%{ transform:scale(.3) rotate(-14deg); } 70%{ transform:scale(1.18); } 100%{ transform:scale(1); } }
+  .overbox .cup{ position:relative; display:inline-block; font-size:38px; animation:cuppop .55s var(--ease); }
+  .overbox .cup::before{ content:""; position:absolute; inset:-42px; z-index:-1; border-radius:50%;
+    background:repeating-conic-gradient(rgba(255,194,51,.22) 0 14deg, transparent 14deg 30deg);
+    animation:rays 7s linear infinite; }
+  @keyframes rays{ to{ transform:rotate(360deg); } }
+  .overbox .wname{ font-weight:900; font-size:21px; color:var(--yellow); }
+  .standing{ display:flex; justify-content:space-between; padding:8px 14px; background:rgba(255,255,255,.05);
+    border-radius:11px; margin-top:7px; font-weight:700; font-size:14px; }
+
+  /* declare confirm + how-to overlays */
+  .picker{ position:fixed; inset:0; background:rgba(5,7,18,.78); display:flex; align-items:center; justify-content:center; z-index:40; padding:16px; }
+  .pickbox{ background:rgba(26,30,52,.97); border:1px solid var(--glassbd); border-radius:20px; padding:20px; text-align:center;
+    max-width:520px; width:100%; max-height:84vh; overflow-y:auto; }
+  .pickbox .label{ margin-bottom:12px; }
+  .pickbox .groups{ margin:10px 0; }
+  .howto{ text-align:left; font-size:13.5px; line-height:1.6; color:var(--txt); font-weight:600; }
+  .howto b{ color:var(--yellow); }
+  .howto p{ margin:8px 0; }
+
+  .voicebar{ width:100%; max-width:620px; display:flex; align-items:center; gap:10px; margin-top:12px; flex-wrap:wrap; }
+  .voicebar .btn{ width:auto; }
+  .voicewho{ font-size:12.5px; font-weight:700; color:var(--mut); flex:1; min-width:120px; }
+  .voiceleave{ font-size:12px; color:var(--mut); font-weight:700; }
+  #voiceBtn.live{ background:linear-gradient(180deg,#3ee68b,#1eb567); color:#fff; border:none; }
+  #voiceBtn.muted{ background:linear-gradient(180deg,#ff7a7a,#e84040); color:#fff; border:none; }
+  audio.vpeer{ display:none; }
+  .chatcard{ margin-top:12px; width:100%; max-width:620px; background:rgba(26,30,52,.72); border:1px solid var(--glassbd);
+    border-radius:18px; overflow:hidden; }
+  .chattoggle{ width:100%; padding:12px 15px; font-size:15px; font-weight:800; border:none; background:transparent;
+    color:var(--txt); font-family:inherit; cursor:pointer; text-align:left; display:flex; align-items:center; gap:8px; }
+  .badge{ background:linear-gradient(180deg,#ff7a7a,#e84040); color:#fff; border-radius:999px; font-size:11px; font-weight:800; padding:2px 8px; }
+  #chatbody{ max-height:0; overflow:hidden; opacity:0; transition:max-height .38s var(--ease), opacity .3s var(--ease); }
+  #chatbody.open{ max-height:320px; opacity:1; }
+  #msgs{ max-height:190px; overflow-y:auto; padding:4px 14px; border-top:1px solid rgba(255,255,255,.09); }
+  .msg{ display:flex; gap:8px; align-items:flex-start; margin:8px 0; font-size:14px; }
+  .msg .mn{ font-weight:800; margin-right:5px; color:var(--mut); }
+  .chatrow{ display:flex; gap:8px; padding:9px 14px 13px; border-top:1px solid rgba(255,255,255,.09); }
+  .chatrow input{ flex:1; padding:11px 13px; font-size:15px; }
+  .sendbtn{ width:48px; border-radius:12px; border:none; background:linear-gradient(180deg,#6f9aff,#4a76ea);
+    color:#fff; font-size:18px; font-weight:800; cursor:pointer; font-family:inherit; }
+  #toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:rgba(14,17,36,.95); color:var(--txt); padding:11px 18px; border-radius:14px;
+    border:1px solid rgba(255,255,255,.14); font-weight:700; font-size:14px; z-index:50;
+    max-width:90vw; text-align:center; opacity:0; pointer-events:none; transition:opacity .2s; }
+  #toast.show{ opacity:1; }
+  @font-face{ font-family:'Baloo2'; font-weight:700; font-display:swap;
+    src:url(data:font/woff2;base64,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) format('woff2'); }
+
+  .wordmark, .btn, .pill, .timer span, .tokbtn, .hosttag, .badge, .label, .roomtag,
+  .pc .ix, .pc.back, .gtag, .sendbtn, .overbox .wname, .standing, .avchip, .cnt, .wildline
+  { font-family:'Baloo2','Avenir Next','Segoe UI',sans-serif; }
+</style>
+</head>
+<body>
+<div id="home">
+  <div class="wordmark"><span class="w1">RUM</span><span class="w2">MY</span></div>
+  <div class="tagline">13 cards. Two sequences — one pure. First valid declare wins.</div>
+  <a class="arcadelink" href="/">&#9666; all games &middot; needasix arcade</a>
+  <div class="panel">
+    <div class="label">Your name</div>
+    <input id="nameIn" maxlength="18" placeholder="e.g. Chanu">
+    <div class="label mt12">Pick your avatar</div>
+    <div class="avrow" id="avrow"></div>
+    <button class="btn gold mt18" id="createBtn">Create a room</button>
+    <div class="divider"><div class="line"></div><div class="txt">OR JOIN</div><div class="line"></div></div>
+    <div class="label">Room code</div>
+    <input id="codeIn" class="code" maxlength="6" placeholder="ABC123">
+    <button class="btn blue mt12" id="joinBtn">Join room</button>
+  </div>
+  <div class="hint">2–6 players. Two decks, two jokers, and a wildcard drawn every game. Group your melds, then declare.</div>
+</div>
+
+<div id="lobby" class="hidden">
+  <div class="wordmark small"><span class="w1">RUM</span><span class="w2">MY</span><span class="roomtag" id="lobbyCode"></span></div>
+  <div class="panel">
+    <div class="label">Players <span id="pcount"></span></div>
+    <div id="plist"></div>
+    <div class="label mt12">Bots</div>
+    <div class="tokrow" id="botrow"></div>
+    <div class="setnote">Bots draw, discard and will only declare a genuinely valid hand.</div>
+    <button class="btn gold mt18" id="startBtn">Deal the cards</button>
+    <button class="btn plain small mt10" id="howtoBtn1">How to play</button>
+    <button class="btn plain small mt10" id="leaveLobbyBtn">Leave</button>
+  </div>
+</div>
+
+<div id="game" class="hidden">
+  <div class="wordmark small"><span class="w1">RUM</span><span class="w2">MY</span><span class="roomtag" id="gameCode"></span></div>
+  <div class="strip" id="strip"></div>
+  <div class="meta">
+    <span id="turnwho"></span>
+    <div class="timer" id="timer"><span id="timerNum">–</span></div>
+  </div>
+  <div class="table">
+    <div class="pilecol">
+      <div class="closedwrap" id="closedwrap">
+        <div id="wildpeek" class="wildpeek"></div>
+        <div class="pc big back" id="drawpile"><span>DRAW</span><i class="pips"></i></div>
+      </div>
+      <div id="deckCount"></div>
+    </div>
+    <div class="pilecol">
+      <div class="openfan" id="openfan"></div>
+      <div>open pile</div>
+    </div>
+  </div>
+  <div class="wildline" id="wildline"></div>
+  <div class="actionhint" id="actionhint"></div>
+  <div class="handwrap">
+    <div class="handlabel"><span>Your hand</span><span id="handCount"></span></div>
+    <div class="groups" id="groupsBox"></div>
+    <div class="loose" id="loose"></div>
+    <div class="handactions">
+      <button class="btn plain small" id="sortBtn">Sort</button>
+      <button class="btn blue small" id="groupBtn">Group ▸ new</button>
+      <button class="btn plain small" id="ungroupBtn">Ungroup</button>
+      <button class="btn gold small" id="discardBtn">Discard</button>
+      <button class="btn green small" id="declareBtn">DECLARE</button>
+    </div>
+  </div>
+  <div class="log" id="log"></div>
+  <div class="overbox hidden" id="overbox">
+    <div class="cup">🏆</div>
+    <div class="wname" id="winname"></div>
+    <div id="standings"></div>
+    <button class="btn gold mt12" id="rematchBtn">Deal again</button>
+    <div><a class="arcadelink" href="/" style="margin-top:12px">&#9666; more games at the arcade</a></div>
+  </div>
+  <div class="voicebar hidden" id="voicebar">
+    <button id="voiceBtn" class="btn small plain">🎙 Join voice</button>
+    <a href="#" id="voiceLeave" class="voiceleave hidden">leave voice</a>
+    <div id="voicewho" class="voicewho"></div>
+  </div>
+  <div class="chatcard">
+    <button class="chattoggle" id="chatToggle">💬 Chat <span class="badge hidden" id="unread">0</span></button>
+    <div id="chatbody">
+      <div id="msgs"></div>
+      <div class="chatrow"><input id="chatIn" maxlength="140" placeholder="Talk trash…"><button class="sendbtn" id="sendBtn">➤</button></div>
+    </div>
+  </div>
+  <button class="btn plain small mt12" id="howtoBtn2">How to play</button>
+  <button class="btn plain small mt12" id="leaveGameBtn">Leave game</button>
+</div>
+
+<div class="picker hidden" id="declareModal">
+  <div class="pickbox">
+    <div class="label">Declare with these melds?</div>
+    <div class="groups" id="declarePreview"></div>
+    <div class="setnote" id="declareNote"></div>
+    <button class="btn green mt12" id="declareGo">Declare — I'm sure</button>
+    <button class="btn plain mt10" id="declareCancel">Back</button>
+  </div>
+</div>
+
+<div class="picker hidden" id="howtoModal">
+  <div class="pickbox">
+    <div class="label">How to play</div>
+    <div class="howto">
+      <p><b>Goal:</b> arrange all 13 cards into melds and declare first.</p>
+      <p><b>Your turn:</b> draw one card — from the <b>closed pile</b> or the face-up <b>open pile</b> — then discard one. You can't discard the exact card you just took from the open pile.</p>
+      <p><b>Melds:</b> a <b>sequence</b> is 3+ cards of one suit in a row (A-2-3 and Q-K-A both count). A <b>set</b> is 3–4 cards of the same rank in different suits.</p>
+      <p><b>Jokers:</b> two printed jokers, plus every card of the <b>wildcard rank</b> (shown by the closed pile) stands in for anything. A wildcard used as its own rank still keeps a sequence pure.</p>
+      <p><b>To win:</b> you need at least <b>2 sequences</b>, and one must be <b>pure</b> (no jokers). The rest must be valid sets or sequences. Group your cards, select one to throw, and hit <b>DECLARE</b>.</p>
+      <p><b>Scoring:</b> losers count the cards outside their valid melds (A and faces 10, jokers 0), capped at 80. A wrong declare is an instant 80.</p>
+    </div>
+    <button class="btn gold mt12" id="howtoClose">Got it</button>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="socket.io/socket.io.js"></script>
+<script>
+const $ = (id)=>document.getElementById(id);
+const esc = (s)=>String(s).replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const APP_BASE = location.pathname.replace(/\/[^\/]*$/, "");
+const socket = io({ path: APP_BASE + "/socket.io" });
+if (APP_BASE === "") document.querySelectorAll(".arcadelink").forEach((a)=>{ a.style.display = "none"; });
+/* FX: canvas particles — bursts + fireworks (GPU-light, self-cleaning) */
+const FX=(()=>{
+  let cv=null, ctx=null, ps=[], running=false;
+  const RM = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function ensure(){
+    if (cv || typeof document==="undefined") return;
+    cv=document.createElement("canvas");
+    cv.style.cssText="position:fixed;inset:0;pointer-events:none;z-index:75;";
+    document.body.appendChild(cv);
+    ctx=cv.getContext("2d");
+    const rs=()=>{ const d=window.devicePixelRatio||1; cv.width=innerWidth*d; cv.height=innerHeight*d; ctx.setTransform(d,0,0,d,0,0); };
+    rs(); window.addEventListener("resize",rs);
+  }
+  function loop(){
+    if(!ctx) return;
+    ctx.clearRect(0,0,innerWidth,innerHeight);
+    ps=ps.filter(p=>{
+      p.vy+=p.g; p.x+=p.vx; p.y+=p.vy; p.life--;
+      if(p.rocket){
+        ctx.fillStyle=p.col; ctx.fillRect(p.x-1.5,p.y-6,3,9);
+        if(p.life<=0 || p.vy>-1){ boom(p.x,p.y,p.cols); return false; }
+        return true;
+      }
+      ctx.globalAlpha=Math.max(0,Math.min(1,p.life/p.max));
+      ctx.fillStyle=p.col;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill();
+      ctx.globalAlpha=1;
+      return p.life>0;
+    });
+    if(ps.length) requestAnimationFrame(loop); else { running=false; ctx.clearRect(0,0,innerWidth,innerHeight); }
+  }
+  function go(){ if(!running){ running=true; requestAnimationFrame(loop); } }
+  function boom(x,y,cols){
+    for(let i=0;i<36;i++){
+      const a=Math.random()*6.283, s=1.6+Math.random()*3.4;
+      ps.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-.6,g:.055,r:1.6+Math.random()*2.2,
+        col:cols[i%cols.length],life:46+Math.random()*22,max:60});
+    }
+  }
+  function burst(x,y,cols){
+    try{ ensure(); if(!ctx) return;
+      for(let i=0;i<22;i++){
+        const a=Math.random()*6.283, s=1+Math.random()*2.6;
+        ps.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-1.1,g:.08,r:1.4+Math.random()*2,
+          col:cols[i%cols.length],life:30+Math.random()*16,max:44});
+      }
+      go();
+    }catch(e){}
+  }
+  function burstAt(el,cols){
+    try{ if(!el) return; const r=el.getBoundingClientRect();
+      burst(r.left+r.width/2, r.top+r.height/2, cols); }catch(e){}
+  }
+  function fireworks(){
+    try{ if(RM) return; ensure(); if(!ctx) return;
+      const pal=[["#ffd257","#ff8a5c","#fff"],["#7ba3ff","#b795ff","#fff"],["#4fe08f","#ffd257","#fff"]];
+      for(let k=0;k<3;k++){
+        setTimeout(()=>{
+          const x=innerWidth*(0.25+Math.random()*0.5);
+          ps.push({x, y:innerHeight+8, vx:(Math.random()-.5)*1.4, vy:-(9.5+Math.random()*2.5),
+            g:.14, rocket:true, col:"#fff", cols:pal[k%3], life:70});
+          go();
+        }, k*380);
+      }
+    }catch(e){}
+  }
+  return { burst, burstAt, fireworks };
+})();
+function confetti(){
+  const cols=["#e2504c","#3aa46a","#f0b429","#4a6fe3","#9b5de5","#ee7a2f","#ef5da8"];
+  const wrap=document.createElement("div"); wrap.className="confetti";
+  for(let i=0;i<70;i++){ const d=document.createElement("i");
+    d.style.left=(Math.random()*100)+"vw"; d.style.background=cols[i%cols.length];
+    d.style.animationDelay=(Math.random()*0.7)+"s"; d.style.animationDuration=(2.2+Math.random()*1.5)+"s";
+    wrap.appendChild(d); }
+  document.body.appendChild(wrap); setTimeout(()=>wrap.remove(),4500);
+}
+let AC=null;
+function tone(f,dur,type,vol,when){
+  try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+    const t=AC.currentTime+(when||0), o=AC.createOscillator(), g=AC.createGain();
+    o.type=type||"sine"; o.frequency.value=f; g.gain.setValueAtTime(vol||.08,t);
+    g.gain.exponentialRampToValueAtTime(.0001,t+dur); o.connect(g); g.connect(AC.destination);
+    o.start(t); o.stop(t+dur+.02); }catch(e){}
+}
+function shake(el){ if(!el) return; el.classList.remove("jshake"); void el.offsetWidth; el.classList.add("jshake"); }
+
+let S = { room:null, mySeat:-1 };
+let chatOpen=false, unread=0, lastChatLen=0;
+let SEL = new Set();          // selected card ids
+let prevHandLen=-1, lastLMKey="";
+
+const AV = ["🃏","😎","🤠","🦊","🐼","👑","🐯","👽","🦄","🍕","🐸","🎩"];
+let myAvatar = localStorage.getItem("rmAvatar") || AV[Math.floor(Math.random()*AV.length)];
+let playerId = localStorage.getItem("rmPid");
+if (!playerId){ playerId = "p_"+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem("rmPid", playerId); }
+$("nameIn").value = localStorage.getItem("rmName") || "";
+
+function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("show"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove("show"),2600); }
+function show(id){ for (const s of ["home","lobby","game"]) $(s).classList.toggle("hidden", s!==id); }
+
+/* ---------- card rendering ---------- */
+const SUITSYM = { S:"♠", H:"♥", D:"♦", C:"♣" };
+const RNAME = ["","A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+function isRed(c){ return c.s==="H"||c.s==="D"; }
+function isWild(c){ return S.room && S.room.wildRank && c.s!=="J" && c.r===S.room.wildRank; }
+function cardHTML(c, extra, attrs){
+  if (c.s==="J") return `<div class="pc joker ${extra||""}" ${attrs||""}><i class="pf"></i><span class="pip">🃏<small>JOKER</small></span></div>`;
+  const col = isRed(c)?"red":"blk";
+  const wm = isWild(c)?" wildmark":"";
+  return `<div class="pc ${col}${wm} ${extra||""}" ${attrs||""}>
+    <i class="pf"></i>
+    <span class="ix">${RNAME[c.r]}<small>${SUITSYM[c.s]}</small></span>
+    <span class="pip">${c.r>10?RNAME[c.r]:SUITSYM[c.s]}</span>
+    <span class="ix br">${RNAME[c.r]}<small>${SUITSYM[c.s]}</small></span>
+  </div>`;
+}
+
+/* ---------- client-side meld check (mirrors the server, for live badges) ---------- */
+function cIsJoker(c, w){ return c.s==="J" || c.r===w; }
+function cTrySet(nats, j){ const t=nats.length+j; if(t<3||t>4||!nats.length) return false;
+  const r=nats[0].r, su=new Set(); for(const c of nats){ if(c.r!==r||su.has(c.s)) return false; su.add(c.s);} return true; }
+function cTrySeq(nats, j){ const t=nats.length+j; if(t<3) return false; if(!nats.length) return {gaps:0};
+  const s0=nats[0].s; for(const c of nats) if(c.s!==s0) return false;
+  const tries = nats.some(c=>c.r===1)?[1,14]:[0];
+  for(const av of tries){ const vs=nats.map(c=>c.r===1?av:c.r); const st=new Set(vs);
+    if(st.size!==vs.length) continue; const mn=Math.min(...vs), mx=Math.max(...vs), span=mx-mn+1;
+    if(span>t||t>14) continue; const gaps=span-nats.length; if(gaps>j) continue;
+    const extra=j-gaps, room=(mn-1)+(14-mx); if(extra>room) continue; return {gaps}; }
+  return false; }
+function cMeldType(cards, w){
+  if(cards.length<3) return null;
+  const printed=cards.filter(c=>c.s==="J"), wilds=cards.filter(c=>c.s!=="J"&&c.r===w), plain=cards.filter(c=>c.s!=="J"&&c.r!==w);
+  let best=null; const rank={pure:3,seq:2,set:1};
+  for(let m=0;m<(1<<wilds.length);m++){
+    const nats=plain.slice(); let j=printed.length;
+    for(let i=0;i<wilds.length;i++){ if(m&(1<<i)) nats.push(wilds[i]); else j++; }
+    const sq=cTrySeq(nats,j);
+    if(sq){ const t=(j===0&&sq.gaps===0&&nats.length===cards.length)?"pure":"seq"; if(!best||rank[t]>rank[best]) best=t; }
+    if(cTrySet(nats,j)){ if(!best||rank.set>rank[best]) best="set"; }
+    if(best==="pure") break;
+  }
+  return best;
+}
+
+/* home */
+function drawAv(){ $("avrow").innerHTML = AV.map(a=>`<button class="avchip${a===myAvatar?" on":""}" data-a="${a}">${a}</button>`).join(""); }
+drawAv();
+$("avrow").addEventListener("click",(e)=>{ const b=e.target.closest(".avchip"); if(!b) return; myAvatar=b.getAttribute("data-a"); localStorage.setItem("rmAvatar",myAvatar); drawAv(); });
+function myName(){ const n=$("nameIn").value.trim(); if(!n){ toast("Pick a name first."); return null; } localStorage.setItem("rmName",n); return n; }
+$("createBtn").onclick = ()=>{ const n=myName(); if(n) socket.emit("create",{ name:n, playerId, avatar:myAvatar }); };
+$("joinBtn").onclick = ()=>{ const n=myName(); const c=$("codeIn").value.trim().toUpperCase(); if(!c) return toast("Enter the room code."); if(n) socket.emit("join",{ code:c, name:n, playerId, avatar:myAvatar }); };
+socket.on("err",(m)=>toast(m));
+socket.on("joined",({code})=>{ localStorage.setItem("rmRoom",code); });
+window.addEventListener("load",()=>{ const c=localStorage.getItem("rmRoom"); const n=localStorage.getItem("rmName");
+  if (c && n) socket.emit("join",{ code:c, name:n, playerId, avatar:myAvatar }); });
+
+/* lobby */
+$("botrow").addEventListener("click",(e)=>{
+  if (e.target.closest("#addBotBtn")) socket.emit("addBot");
+  else if (e.target.closest("#delBotBtn")) socket.emit("removeBot");
+});
+$("startBtn").onclick = ()=>socket.emit("start");
+$("leaveLobbyBtn").onclick = ()=>{ socket.emit("leave"); localStorage.removeItem("rmRoom"); show("home"); };
+$("leaveGameBtn").onclick = ()=>{ if(confirm("Leave the game?")){ socket.emit("leave"); localStorage.removeItem("rmRoom"); leaveVoice(); show("home"); } };
+for (const id of ["howtoBtn1","howtoBtn2"]) $(id).onclick = ()=>$("howtoModal").classList.remove("hidden");
+$("howtoClose").onclick = ()=>$("howtoModal").classList.add("hidden");
+
+function renderLobby(r){
+  show("lobby");
+  $("lobbyCode").textContent = "· " + r.code;
+  $("pcount").textContent = `(${r.players.length}/${r.maxPlayers})`;
+  const isHost = S.mySeat === r.hostSeat;
+  $("plist").innerHTML = r.players.map((p,i)=>`
+    <div class="playerrow"><span>${p.avatar}</span>
+      <div class="who">${esc(p.name)}${p.bot?" (bot)":""}${i===S.mySeat?" (you)":""}</div>
+      ${i===r.hostSeat?'<div class="hosttag">HOST</div>':""}
+    </div>`).join("");
+  $("botrow").innerHTML = isHost
+    ? `<button class="tokbtn" id="addBotBtn">🤖 Add a bot</button>` + (r.players.some(p=>p.bot)?`<button class="tokbtn" id="delBotBtn">Remove bot</button>`:"")
+    : "";
+  $("startBtn").classList.toggle("hidden", !isHost);
+  $("startBtn").disabled = r.players.length < 2;
+}
+
+/* ---------- game rendering ---------- */
+function myTurn(r){ return S.mySeat === r.turn && r.status==="playing" && !r.players[S.mySeat].out; }
+function handById(r){ const m=new Map(); for(const c of r.yourHand) m.set(c.id,c); return m; }
+function looseCards(r){
+  const grouped = new Set(r.yourGroups.flat());
+  return r.yourHand.filter(c=>!grouped.has(c.id));
+}
+function sortCards(cards){
+  const SO={S:0,H:1,D:2,C:3,J:4};
+  return cards.slice().sort((a,b)=>(SO[a.s]-SO[b.s])||(a.r-b.r));
+}
+function renderGame(r){
+  show("game");
+  $("gameCode").textContent = "· " + r.code;
+  $("strip").innerHTML = r.players.map((p,i)=>`
+    <div class="pill${i===r.turn&&r.status==="playing"?" turn":""}${p.left||p.out?" gone":""}">
+      ${p.left?"💀":p.out?"❌":p.avatar} ${esc(p.name)}${p.bot?" 🤖":""}
+      <span class="cnt">${p.count}</span>
+    </div>`).join("");
+  $("turnwho").textContent = r.status==="playing"
+    ? (myTurn(r) ? (r.phase==="draw"?"YOUR TURN — draw a card":"YOUR TURN — discard or declare") : `${r.players[r.turn].name}'s turn`)
+    : "";
+  // piles
+  const w = r.wildCard;
+  $("wildpeek").innerHTML = w ? cardHTML(w, "big") : "";
+  $("deckCount").textContent = r.closedCount + " in the closed pile";
+  $("wildline").innerHTML = w ? (w.s==="J"
+    ? `wildcard: <b>printed joker — ACES are wild</b>`
+    : `wildcard: <b>every ${RNAME[r.wildRank]}</b> plays as a joker`) : "";
+  const canDraw = myTurn(r) && r.phase==="draw";
+  $("drawpile").classList.toggle("glow", canDraw);
+  const fan = $("openfan");
+  fan.classList.toggle("glow", canDraw && r.openTop.length>0);
+  fan.innerHTML = r.openTop.map((c,i)=>{
+    const top = i===r.openTop.length-1;
+    return `<div style="transform:rotate(${(i-r.openTop.length+1)*7}deg) translateX(${(i-r.openTop.length+1)*4}px)">${cardHTML(c,"big"+(top?" top":""), top?'id="openTop"':"" )}</div>`;
+  }).join("");
+
+  // hand: groups + loose
+  const byId = handById(r);
+  SEL = new Set([...SEL].filter(id=>byId.has(id)));
+  const grew = r.yourHand.length > prevHandLen && prevHandLen >= 0;
+  const firstDeal = prevHandLen < 0 && r.yourHand.length > 0;
+  prevHandLen = r.yourHand.length;
+  const noDeal = !(grew || firstDeal);
+  $("groupsBox").classList.toggle("nodeal", noDeal);
+  $("loose").classList.toggle("nodeal", noDeal);
+  const gname = { pure:"PURE ♦", seq:"SEQ", set:"SET" };
+  $("groupsBox").innerHTML = r.yourGroups.map((g,gi)=>{
+    const cards = g.map(id=>byId.get(id)).filter(Boolean);
+    const t = cMeldType(cards, r.wildRank);
+    const cls = t? "valid-"+t : "invalid";
+    return `<div class="grp ${cls}" data-g="${gi}">
+      <span class="gtag">${t?gname[t]:"✕"}</span>
+      ${sortCards(cards).map((c,k)=>cardHTML(c, SEL.has(c.id)?"sel":"", `data-i="${c.id}" style="--dd:${k*0.03}s"`)).join("")}
+    </div>`;
+  }).join("");
+  $("loose").innerHTML = sortCards(looseCards(r)).map((c,k)=>
+    cardHTML(c, SEL.has(c.id)?"sel":"", `data-i="${c.id}" style="--dd:${k*0.03}s"`)).join("");
+  $("handCount").textContent = r.yourHand.length + " cards";
+
+  const inDiscard = myTurn(r) && r.phase==="discard";
+  $("discardBtn").disabled = !(inDiscard && SEL.size===1 && ![...SEL].includes(r.pickedOpenId));
+  $("declareBtn").disabled = !(inDiscard && SEL.size===1 && ![...SEL].includes(r.pickedOpenId));
+  $("groupBtn").disabled = SEL.size===0;
+  $("ungroupBtn").disabled = SEL.size===0;
+
+  const me = r.players[S.mySeat];
+  if (r.status==="over") $("actionhint").innerHTML = "";
+  else if (me && me.out) $("actionhint").innerHTML = "Wrong declare — you're out of this one. 80 points.";
+  else if (me && me.left) $("actionhint").innerHTML = "You left this game.";
+  else if (canDraw) $("actionhint").innerHTML = "Tap the <b>closed pile</b> or the <b>open pile</b> to draw.";
+  else if (inDiscard) $("actionhint").innerHTML = "Select one card, then <b>Discard</b> — or <b>DECLARE</b> if your melds are ready.";
+  else $("actionhint").innerHTML = "Group your cards while you wait — tap cards, then <b>Group ▸ new</b>.";
+  $("log").textContent = r.log || "";
+
+  $("overbox").classList.toggle("hidden", r.status!=="over");
+  if (r.status==="over"){
+    $("winname").textContent = r.players[r.winner] ? r.players[r.winner].name + " wins!" : "Game over";
+    $("standings").innerHTML = (r.results||[]).map((x,rank)=>`
+      <div class="standing"><span>#${rank+1} ${esc(r.players[x.seat].name)}${x.wrong?" (wrong declare)":x.left?" (left)":""}</span><span>${x.points} pts</span></div>`).join("");
+    $("rematchBtn").classList.toggle("hidden", S.mySeat !== r.hostSeat);
+  }
+  drawMsgs(r);
+  renderVoice(r);
+}
+
+/* ---------- interactions ---------- */
+function toggleSel(id){ if(SEL.has(id)) SEL.delete(id); else SEL.add(id); if(S.room) renderGame(S.room); }
+function cardClickHandler(e){
+  const pc = e.target.closest(".pc[data-i]");
+  if (pc){ toggleSel(Number(pc.getAttribute("data-i"))); return true; }
+  return false;
+}
+$("loose").addEventListener("click", cardClickHandler);
+$("groupsBox").addEventListener("click",(e)=>{
+  if (cardClickHandler(e)) return;
+  const g = e.target.closest(".grp");
+  if (g && SEL.size){ moveSelectionToGroup(Number(g.getAttribute("data-g"))); }
+});
+function currentGroups(){ return S.room ? S.room.yourGroups.map(g=>g.slice()) : []; }
+function sendGroups(groups){
+  const cleaned = groups.map(g=>g.filter((id,i,a)=>a.indexOf(id)===i)).filter(g=>g.length);
+  socket.emit("arrange",{ groups: cleaned });
+}
+function moveSelectionToGroup(gi){
+  const groups = currentGroups().map(g=>g.filter(id=>!SEL.has(id)));
+  if (!groups[gi]) return;
+  groups[gi] = groups[gi].concat([...SEL]);
+  SEL.clear();
+  sendGroups(groups);
+}
+$("groupBtn").onclick = ()=>{
+  if (!SEL.size) return;
+  const groups = currentGroups().map(g=>g.filter(id=>!SEL.has(id)));
+  groups.push([...SEL]);
+  SEL.clear();
+  sendGroups(groups);
+};
+$("ungroupBtn").onclick = ()=>{
+  if (!SEL.size) return;
+  const groups = currentGroups().map(g=>g.filter(id=>!SEL.has(id)));
+  SEL.clear();
+  sendGroups(groups);
+};
+$("sortBtn").onclick = ()=>{ SEL.clear(); if(S.room) renderGame(S.room); };
+
+$("drawpile").onclick = ()=>{
+  const r=S.room; if(!r||!myTurn(r)||r.phase!=="draw") return;
+  socket.emit("draw",{ from:"closed" });
+};
+$("openfan").addEventListener("click",(e)=>{
+  const r=S.room; if(!r||!myTurn(r)||r.phase!=="draw") return;
+  if (e.target.closest("#openTop")) socket.emit("draw",{ from:"open" });
+});
+
+function flyToOpen(id){
+  try{
+    const el = document.querySelector(`.pc[data-i="${id}"]`);
+    const target = $("openfan").getBoundingClientRect();
+    if (!el || !target.width) return;
+    const from = el.getBoundingClientRect();
+    const clone = el.cloneNode(true);
+    clone.id="flyer"; clone.classList.remove("sel");
+    clone.style.left=from.left+"px"; clone.style.top=from.top+"px";
+    clone.style.width=from.width+"px"; clone.style.height=from.height+"px";
+    document.body.appendChild(clone);
+    requestAnimationFrame(()=>{
+      const dx = target.left+target.width/2-(from.left+from.width/2);
+      const dy = target.top+target.height/2-(from.top+from.height/2);
+      clone.style.transform=`translate(${dx}px,${dy}px) rotate(${Math.random()*16-8}deg) scale(1.12)`;
+      clone.style.opacity=".2";
+    });
+    setTimeout(()=>clone.remove(),360);
+  }catch(err){}
+}
+$("discardBtn").onclick = ()=>{
+  const r=S.room; if(!r||!myTurn(r)||r.phase!=="discard"||SEL.size!==1) return;
+  const id=[...SEL][0];
+  if (id===r.pickedOpenId) return toast("You can't discard the card you just picked up.");
+  flyToOpen(id);
+  SEL.clear();
+  socket.emit("discard",{ id });
+};
+$("declareBtn").onclick = ()=>{
+  const r=S.room; if(!r||!myTurn(r)||r.phase!=="discard"||SEL.size!==1) return;
+  const id=[...SEL][0];
+  if (id===r.pickedOpenId) return toast("You can't finish with the card you just picked up.");
+  const byId=handById(r);
+  const kept = r.yourHand.filter(c=>c.id!==id);
+  const grouped = new Set(r.yourGroups.flat());
+  const groupsPrev = r.yourGroups.map(g=>g.map(cid=>byId.get(cid)).filter(Boolean).filter(c=>c.id!==id));
+  const loose = kept.filter(c=>!grouped.has(c.id));
+  const gname = { pure:"PURE", seq:"SEQ", set:"SET" };
+  let html = groupsPrev.filter(g=>g.length).map(g=>{
+    const t=cMeldType(g, r.wildRank);
+    return `<div class="grp ${t?"valid-"+t:"invalid"}"><span class="gtag">${t?gname[t]:"✕"}</span>${sortCards(g).map(c=>cardHTML(c)).join("")}</div>`;
+  }).join("");
+  if (loose.length) html += `<div class="grp invalid"><span class="gtag">UNGROUPED ✕</span>${sortCards(loose).map(c=>cardHTML(c)).join("")}</div>`;
+  $("declarePreview").innerHTML = html;
+  const risky = loose.length || groupsPrev.some(g=>g.length&&!cMeldType(g,r.wildRank));
+  $("declareNote").innerHTML = risky
+    ? `<b style="color:#ff8a8a">This does not look valid — a wrong declare is an instant 80 points.</b>`
+    : `Finishing by throwing your selected card. Wrong declares cost 80.`;
+  $("declareModal").classList.remove("hidden");
+  $("declareGo").onclick = ()=>{
+    $("declareModal").classList.add("hidden");
+    socket.emit("declare",{ discardId:id, groups: r.yourGroups });
+    SEL.clear();
+  };
+};
+$("declareCancel").onclick = ()=>$("declareModal").classList.add("hidden");
+$("rematchBtn").onclick = ()=>socket.emit("rematch");
+
+setInterval(()=>{
+  const r=S.room;
+  if(!r||!r.phaseEndsAt||r.status!=="playing"){ $("timerNum").textContent="–"; $("timer").style.setProperty("--pct",0); return; }
+  const left=Math.max(0, r.phaseEndsAt-Date.now());
+  $("timerNum").textContent=Math.ceil(left/1000);
+  const total=r._total||(r._total=left);
+  $("timer").style.setProperty("--pct", Math.round((left/Math.max(total,1))*100));
+},250);
+
+/* chat */
+$("chatToggle").onclick = ()=>{ chatOpen=!chatOpen; $("chatbody").classList.toggle("open",chatOpen); if(chatOpen){ unread=0; $("unread").classList.add("hidden"); } };
+function sendChat(){ const t=$("chatIn").value.trim(); if(!t) return; socket.emit("chat",{ t }); $("chatIn").value=""; }
+$("sendBtn").onclick = sendChat;
+$("chatIn").addEventListener("keydown",(e)=>{ if(e.key==="Enter") sendChat(); });
+function drawMsgs(r){
+  const list=r.chat||[];
+  $("msgs").innerHTML = list.map(m=>`<div class="msg"><span>${m.a||""}</span><div><span class="mn">${esc(m.n)}</span>${esc(m.t)}</div></div>`).join("");
+  $("msgs").scrollTop = $("msgs").scrollHeight;
+  if (list.length>lastChatLen && !chatOpen){ unread+=list.length-lastChatLen; $("unread").textContent=unread; $("unread").classList.remove("hidden"); }
+  lastChatLen=list.length;
+}
+
+/* state */
+socket.on("state", ({room, mySeat})=>{
+  const lm = room.lastMove;
+  const key = lm ? JSON.stringify(lm) : "";
+  if (lm && key!==lastLMKey && room.status!=="lobby"){
+    lastLMKey = key;
+    if (lm.kind==="discard" && lm.card){
+      tone(420,.06,"triangle",.07); tone(560,.07,"triangle",.06,.05);
+      const cols = lm.card.s==="H"||lm.card.s==="D" ? ["#ff8a80","#d8362f","#fff"] : ["#8f97bd","#232946","#fff"];
+      setTimeout(()=>FX.burstAt($("openfan"), cols), 300);
+    } else if (lm.kind==="draw"||lm.kind==="drawOpen"){ tone(240,.06,"sine",.06); }
+    else if (lm.kind==="wrong"){ tone(180,.16,"sawtooth",.08); tone(140,.2,"sawtooth",.07,.1); shake(document.body); }
+  }
+  if (room.status==="over" && (!S.room || S.room.status!=="over")){
+    confetti(); FX.fireworks(); tone(523,.12,"triangle",.09); tone(659,.12,"triangle",.09,.12); tone(784,.2,"triangle",.1,.24);
+  }
+  if (room.status==="playing" && S.room && S.room.status!=="playing"){ prevHandLen=-1; SEL.clear(); }
+  const prevTurn = S.room && S.room.turn, prevPhase = S.room && S.room.phase;
+  S.room=room; S.mySeat=mySeat;
+  if (room.turn!==prevTurn || room.phase!==prevPhase) room._total=null;
+  if (room.status==="lobby") renderLobby(room);
+  else renderGame(room);
+});
+
+/* ---------- voice (peer-to-peer audio; the server only passes notes) ---------- */
+const VOICE = { on:false, muted:false, stream:null, pcs:new Map(), els:new Map(), seats:[] };
+const RTC_CFG = { iceServers:[{ urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"] }] };
+function voiceSupported(){ return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection && window.isSecureContext); }
+function renderVoice(r){
+  const bar=$("voicebar"); if(!bar) return;
+  const active = r && r.status!=="lobby";
+  bar.classList.toggle("hidden", !active || !voiceSupported());
+  if (!active){ if (VOICE.on) leaveVoice(); return; }
+  VOICE.seats = r.voice || [];
+  if (VOICE.on && !VOICE.seats.includes(S.mySeat)) VOICE.seats = VOICE.seats.concat([S.mySeat]);
+  const btn=$("voiceBtn");
+  btn.classList.toggle("live", VOICE.on && !VOICE.muted);
+  btn.classList.toggle("muted", VOICE.on && VOICE.muted);
+  btn.textContent = !VOICE.on ? "🎙 Join voice" : (VOICE.muted ? "🔇 Unmute" : "🎙 Mute");
+  $("voiceLeave").classList.toggle("hidden", !VOICE.on);
+  const others = VOICE.seats.filter(s=>s!==S.mySeat && r.players[s]);
+  $("voicewho").textContent = VOICE.seats.length===0 ? "Trash talk works better out loud."
+    : `${VOICE.seats.length} in voice${others.length?": "+others.map(s=>r.players[s].name).join(", "):""}`;
+  if (VOICE.on) syncPeers();
+}
+async function joinVoice(){
+  try{ VOICE.stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
+  catch(e){ toast("Voice needs microphone permission."); return; }
+  VOICE.on=true; VOICE.muted=false;
+  socket.emit("voice",{ kind:"join" });
+  if (S.room) renderVoice(S.room);
+}
+function leaveVoice(){
+  if (!VOICE.on && VOICE.pcs.size===0) return;
+  VOICE.on=false; VOICE.muted=false;
+  socket.emit("voice",{ kind:"leave" });
+  for (const [,pc] of VOICE.pcs){ try{pc.close();}catch(e){} } VOICE.pcs.clear();
+  for (const [,el] of VOICE.els){ try{el.remove();}catch(e){} } VOICE.els.clear();
+  if (VOICE.stream){ VOICE.stream.getTracks().forEach(t=>t.stop()); VOICE.stream=null; }
+}
+function toggleMute(){ VOICE.muted=!VOICE.muted; if (VOICE.stream) VOICE.stream.getAudioTracks().forEach(t=>{t.enabled=!VOICE.muted;}); }
+$("voiceBtn").onclick = ()=>{ if(!VOICE.on) joinVoice(); else { toggleMute(); if(S.room) renderVoice(S.room); } };
+$("voiceLeave").onclick = (e)=>{ e.preventDefault(); leaveVoice(); if(S.room) renderVoice(S.room); };
+function pcFor(seat){
+  if (VOICE.pcs.has(seat)) return VOICE.pcs.get(seat);
+  const pc = new RTCPeerConnection(RTC_CFG);
+  VOICE.pcs.set(seat, pc);
+  if (VOICE.stream) VOICE.stream.getTracks().forEach(t=>pc.addTrack(t, VOICE.stream));
+  pc.onicecandidate = (e)=>{ if(e.candidate) socket.emit("voice",{ kind:"signal", to:seat, data:{ ice:e.candidate } }); };
+  pc.ontrack = (e)=>{
+    let el = VOICE.els.get(seat);
+    if (!el){ el=document.createElement("audio"); el.className="vpeer"; el.autoplay=true; el.setAttribute("playsinline",""); document.body.appendChild(el); VOICE.els.set(seat, el); }
+    el.srcObject = e.streams[0];
+    if (el.play) el.play().catch(()=>{});
+  };
+  return pc;
+}
+async function syncPeers(){
+  const targets = VOICE.seats.filter(s=>s!==S.mySeat);
+  for (const [seat,pc] of [...VOICE.pcs]){
+    if (!targets.includes(seat)){ try{pc.close();}catch(e){} VOICE.pcs.delete(seat);
+      const el=VOICE.els.get(seat); if(el){ el.remove(); VOICE.els.delete(seat); } }
+  }
+  for (const seat of targets){
+    if (!VOICE.pcs.has(seat) && S.mySeat < seat){
+      const pc = pcFor(seat);
+      try{
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("voice",{ kind:"signal", to:seat, data:{ sdp: pc.localDescription } });
+      }catch(e){}
+    }
+  }
+}
+socket.on("voice", async (msg)=>{
+  if (!msg || msg.kind!=="signal" || !VOICE.on) return;
+  const pc = pcFor(msg.from);
+  const d = msg.data || {};
+  try{
+    if (d.sdp){
+      await pc.setRemoteDescription(d.sdp);
+      if (d.sdp.type==="offer"){
+        const ans = await pc.createAnswer();
+        await pc.setLocalDescription(ans);
+        socket.emit("voice",{ kind:"signal", to:msg.from, data:{ sdp: pc.localDescription } });
+      }
+    } else if (d.ice){ await pc.addIceCandidate(d.ice); }
+  }catch(e){}
+});
+
+</script>
+</body>
+</html>

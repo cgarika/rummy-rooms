@@ -1,0 +1,326 @@
+/*
+ Rummy — rules & secrecy suite.
+ Part 1 (unit): meld validator, declare validator, points math, solver cross-check.
+ Part 2 (sockets): BOT_MS=5 PORT=3411 node server.js   then:  node test/rules.js
+ Proves: deal integrity, hand secrecy, draw/discard flow, open-pile discard
+ block, arrange persistence, wrong-declare penalty, valid declare wins with
+ correct points, reshuffle, rematch.
+*/
+const eng = require("../server.js");
+const { io } = require("socket.io-client");
+const URL = "http://localhost:3411";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let uid = 1000;
+function C(str) { // "5S" "10H" "AS" "KD" "JK" (printed joker)
+  if (str === "JK") return { id: uid++, s: "J", r: 0 };
+  const m = str.match(/^(A|K|Q|J|10|[2-9])([SHDC])$/);
+  const r = { A: 1, J: 11, Q: 12, K: 13 }[m[1]] || Number(m[1]);
+  return { id: uid++, s: m[2], r };
+}
+const H = (...ss) => ss.map(C);
+function assert(cond, msg) { if (!cond) throw new Error("UNIT FAIL: " + msg); }
+
+function unitTests() {
+  const vm = (cards, wild) => eng.validMeld(cards, wild);
+  // ---- pure sequences ----
+  assert(vm(H("4S", "5S", "6S"), 9).type === "pure", "4-5-6 same suit pure");
+  assert(vm(H("QS", "KS", "AS"), 9).type === "pure", "Q-K-A ace-high pure");
+  assert(vm(H("AS", "2S", "3S"), 9).type === "pure", "A-2-3 ace-low pure");
+  assert(vm(H("7H", "8H", "9H"), 7).type === "pure", "wildcard used as itself keeps a sequence PURE");
+  assert(!vm(H("KS", "AS", "2S"), 9).valid, "K-A-2 wraparound invalid");
+  assert(!vm(H("4S", "5S", "6H"), 9).valid, "mixed suit seq invalid");
+  assert(!vm(H("4S", "5S"), 9).valid, "two cards invalid");
+  // ---- impure sequences ----
+  assert(vm(H("4S", "5S", "JK"), 9).type === "seq", "joker extends 4-5");
+  assert(vm(H("4S", "6S", "JK"), 9).type === "seq", "joker fills 4-_-6");
+  assert(vm(H("4S", "6S", "9D", "JK"), 9).type === "seq", "wild 9D acts as joker to fill/extend");
+  assert(!vm(H("4S", "6S", "10S", "JK"), 9).valid, "one joker can't fill two holes");
+  assert(vm(H("JK", "JK", "5D"), 9).type === "seq", "two jokers + one card is an impure seq");
+  // ---- sets ----
+  assert(vm(H("5S", "5H", "5D"), 9).type === "set", "three suits set");
+  assert(vm(H("5S", "5H", "5D", "5C"), 9).type === "set", "four suits set");
+  assert(!vm(H("5S", "5H", "5S"), 9).valid, "duplicate suit in set invalid");
+  assert(vm(H("5S", "5H", "JK"), 9).type === "set", "joker completes a set");
+  assert(vm(H("5S", "5H", "9D"), 9).type === "set", "wild 9 completes a set");
+  assert(!vm(H("5S", "5H", "5D", "5C", "JK"), 9).valid, "5-card set invalid");
+
+  // ---- declare validation ----
+  const wild = 9;
+  const good = [H("AS", "2S", "3S"), H("5H", "6H", "7H"), H("10D", "JD", "QD", "KD"), H("4S", "4H", "4D")];
+  const hand13 = good.flat();
+  const groups = good.map((g) => g.map((c) => c.id));
+  assert(eng.validateDeclare(hand13, groups, wild).valid, "textbook declare is valid");
+
+  // no pure sequence (both seqs use jokers)
+  const np = [H("AS", "2S", "JK"), H("5H", "6H", "JK"), H("10D", "JD", "QD", "KD"), H("4S", "4H", "4D")];
+  // make second "pure" seq impure: 10D JD QD KD is pure — replace with a jokered one
+  const np2 = [H("AS", "2S", "JK"), H("5H", "6H", "JK"), H("10D", "JD", "QD", "JK"), H("4S", "4H", "4D")];
+  assert(!eng.validateDeclare(np2.flat(), np2.map((g) => g.map((c) => c.id)), wild).valid, "declare without a pure sequence invalid");
+
+  // only one sequence
+  const oneSeq = [H("AS", "2S", "3S"), H("5H", "5S", "5D"), H("10D", "10H", "10S", "10C"), H("4S", "4H", "4D")];
+  assert(!eng.validateDeclare(oneSeq.flat(), oneSeq.map((g) => g.map((c) => c.id)), wild).valid, "declare with one sequence invalid");
+
+  // ungrouped card
+  const short = groups.slice(0, 3);
+  assert(!eng.validateDeclare(hand13, short, wild).valid, "leftover cards invalid");
+  // card used twice
+  const dup = groups.map((g) => g.slice());
+  dup[3] = [groups[0][0], groups[3][1], groups[3][2]];
+  assert(!eng.validateDeclare(hand13, dup, wild).valid, "reused card invalid");
+  // foreign card
+  const foreign = groups.map((g) => g.slice());
+  foreign[3] = [99999, foreign[3][1], foreign[3][2]];
+  assert(!eng.validateDeclare(hand13, foreign, wild).valid, "foreign card invalid");
+
+  // ---- points ----
+  assert(eng.cardPoints(C("AS"), 9) === 10, "ace 10 pts");
+  assert(eng.cardPoints(C("KD"), 9) === 10, "king 10 pts");
+  assert(eng.cardPoints(C("10H"), 9) === 10, "ten 10 pts");
+  assert(eng.cardPoints(C("6C"), 9) === 6, "six 6 pts");
+  assert(eng.cardPoints(C("JK"), 9) === 0, "printed joker 0 pts");
+  assert(eng.cardPoints(C("9C"), 9) === 0, "wildcard card 0 pts");
+
+  // scoreHand: with pure + 2nd seq, only deadwood counts
+  const partial = [H("AS", "2S", "3S"), H("5H", "6H", "7H")];
+  const dead = H("KD", "QD", "9C", "4S", "4H", "8C", "2D"); // 9C wild = 0 -> 10+10+0+4+4+8+2 = 38
+  const hand = partial.flat().concat(dead);
+  const pgroups = partial.map((g) => g.map((c) => c.id));
+  assert(eng.scoreHand(hand, pgroups, 9) === 38, "deadwood-only scoring, got " + eng.scoreHand(hand, pgroups, 9));
+  // no pure sequence: everything non-joker counts
+  const noPure = H("KD", "KS", "KH", "QD", "QS", "QH", "10D", "10S", "10H", "AD", "AS", "AH", "9C");
+  assert(eng.scoreHand(noPure, [], 9) === 80, "full count capped at 80");
+  const smallHand = H("2D", "3C", "4H");
+  assert(eng.scoreHand(smallHand, [], 9) === 9, "small full count exact");
+
+  // ---- solver cross-check: any solver win must pass the declare validator ----
+  const deck = eng.buildDeck();
+  let wins = 0;
+  for (let t = 0; t < 400; t++) {
+    const d = deck.slice();
+    for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; }
+    const cards = d.slice(0, 13);
+    const wr = 1 + Math.floor(Math.random() * 13);
+    const win = eng.bestArrangement(cards, wr, 30000);
+    if (win) {
+      wins++;
+      const v = eng.validateDeclare(cards, win.groups, wr);
+      assert(v.valid, "solver arrangement failed validator: " + JSON.stringify(win.groups));
+    }
+  }
+  // sanity: solver must find a win on a crafted winning hand
+  const crafted = [H("AS", "2S", "3S"), H("5H", "6H", "7H"), H("10D", "JD", "QD", "KD"), H("4S", "4H", "4D")].flat();
+  assert(eng.bestArrangement(crafted, 9, 30000), "solver finds crafted win");
+  const craftedWild = [H("AS", "2S", "3S"), H("5H", "6H", "JK"), H("10D", "JD", "QD", "KD"), H("4S", "4H", "9C")].flat();
+  assert(eng.bestArrangement(craftedWild, 9, 30000), "solver finds crafted win with jokers");
+  console.log(`PASS unit — melds, declares, points, solver cross-check (${wins}/400 random hands winnable)`);
+}
+
+/* ================= socket tests ================= */
+function mk(name) {
+  const s = io(URL, { transports: ["websocket"] });
+  s.nm = name; s.st = null; s.seat = -1; s.leaks = [];
+  s.on("state", ({ room, mySeat }) => {
+    s.st = room; s.seat = mySeat;
+    for (let i = 0; i < room.players.length; i++) {
+      const p = room.players[i];
+      for (const k of Object.keys(p)) if (["hand", "cards", "yourHand", "groups"].includes(k)) s.leaks.push("player field " + k);
+      if (typeof p.count !== "number") s.leaks.push("missing count");
+    }
+    if (room.yourHand && mySeat >= 0 && room.players[mySeat] && room.yourHand.length !== room.players[mySeat].count)
+      s.leaks.push("own hand/count mismatch");
+  });
+  return s;
+}
+const myTurn = (c) => c.st && c.st.status === "playing" && c.seat === c.st.turn;
+
+async function until(fn, cap, why) {
+  for (let k = 0; k < cap; k++) { if (fn()) return true; await sleep(12); }
+  throw new Error("timeout: " + why);
+}
+
+(async () => {
+  try {
+    unitTests();
+
+    /* ---- Test A: 3 humans — deal, secrecy, flow, open-pile block, arrange, wrong declare ---- */
+    const cs = [mk("A"), mk("B"), mk("C")];
+    await sleep(300);
+    let code = null; cs[0].on("joined", (j) => { code = j.code; });
+    cs[0].emit("create", { name: "A", playerId: "r0", avatar: "🦊" }); await sleep(250);
+    for (let i = 1; i < 3; i++) cs[i].emit("join", { code, name: "P" + i, playerId: "r" + i, avatar: "🐼" });
+    await sleep(300);
+    cs[0].emit("start"); await sleep(350);
+    const r0 = cs[0].st;
+    if (r0.players.reduce((a, p) => a + p.count, 0) !== 39) throw new Error("deal wrong: " + r0.players.map((p) => p.count));
+    if (!r0.wildCard || !r0.wildRank) throw new Error("no wildcard");
+    if (r0.openTop.length !== 1) throw new Error("open pile should start with 1 card");
+    if (r0.closedCount !== 106 - 39 - 1 - 1) throw new Error("closed count wrong: " + r0.closedCount);
+    for (const c of cs) if (c.st.yourHand.length !== 13) throw new Error(c.nm + " hand != 13");
+
+    // flow: current player draws open, may not discard it back
+    let cur = cs.find((c) => myTurn(c));
+    const openId = cur.st.openTop[cur.st.openTop.length - 1].id;
+    cur.emit("draw", { from: "open" });
+    await until(() => cur.st.phase === "discard" && cur.st.yourHand.length === 14, 200, "draw open");
+    if (cur.st.pickedOpenId !== openId) throw new Error("pickedOpenId not reported");
+    cur.emit("discard", { id: openId }); await sleep(150);
+    if (cur.st.phase !== "discard") throw new Error("discarding the picked-up card was allowed");
+    const other = cur.st.yourHand.find((c) => c.id !== openId);
+    cur.emit("discard", { id: other.id });
+    await until(() => cur.st.yourHand.length === 13 && cur.st.turn !== cur.seat, 200, "discard advance");
+    console.log("PASS deal + secrecy + open-pile discard block");
+
+    // arrange persists
+    const arr = cs[1];
+    const g0 = arr.st.yourHand.slice(0, 3).map((c) => c.id);
+    const g1 = arr.st.yourHand.slice(3, 6).map((c) => c.id);
+    arr.emit("arrange", { groups: [g0, g1] });
+    await until(() => arr.st.yourGroups.length === 2 && arr.st.yourGroups[0].join() === g0.join(), 200, "arrange persist");
+    // hostile arrange: foreign + duplicate ids get stripped
+    arr.emit("arrange", { groups: [[999999, g0[0], g0[0], g0[1]]] });
+    await until(() => arr.st.yourGroups.length === 1 && arr.st.yourGroups[0].join() === [g0[0], g0[1]].join(), 200, "hostile arrange cleaned");
+    console.log("PASS arrange persistence + hostile arrange");
+
+    // wrong declare: whoever is on turn declares all-cards-one-group
+    cur = cs.find((c) => myTurn(c));
+    cur.emit("draw", { from: "closed" });
+    await until(() => cur.st.phase === "discard", 200, "draw for wrong declare");
+    const all = cur.st.yourHand.map((c) => c.id);
+    cur.emit("declare", { discardId: all[0], groups: [all.slice(1)] });
+    await until(() => cur.st.players[cur.seat].out, 300, "wrong declarer marked out");
+    if (cur.st.status !== "playing") throw new Error("game should continue after wrong declare (3 players)");
+    if (cur.st.turn === cur.seat) throw new Error("turn stuck on out player");
+    console.log("PASS wrong declare — 80, out, game continues");
+
+    // remaining two: leave one -> last standing wins, results carry 80 for wrong declarer
+    const alive = cs.filter((c) => !c.st.players[c.seat].out);
+    alive[0].emit("leave");
+    await until(() => alive[1].st && alive[1].st.status === "over", 300, "last standing");
+    const res = alive[1].st.results;
+    if (!res) throw new Error("no results");
+    const wrongRow = res.find((x) => x.seat === cur.seat);
+    if (!wrongRow || wrongRow.points !== 80) throw new Error("wrong declarer not scored 80");
+    if (alive[1].st.winner !== alive[1].seat) throw new Error("last standing not winner");
+    for (const c of cs) if (c.leaks.length) throw new Error(c.nm + " leak: " + c.leaks[0]);
+    console.log("PASS last-standing + results include the 80");
+    cs.forEach((c) => c.close());
+
+    /* ---- Test B: reshuffle — 2 humans cycle draw-closed/discard-drawn ---- */
+    const A = mk("A2"), B = mk("B2"); await sleep(250);
+    let c2 = null; A.on("joined", (j) => { c2 = j.code; });
+    A.emit("create", { name: "A2", playerId: "ra2", avatar: "🦊" }); await sleep(250);
+    B.emit("join", { code: c2, name: "B2", playerId: "rb2", avatar: "🐼" }); await sleep(250);
+    A.emit("start"); await sleep(300);
+    let sawLow = false, sawRefill = false, prevClosed = A.st.closedCount;
+    for (let k = 0; k < 4000; k++) {
+      const me = [A, B].find((c) => myTurn(c));
+      if (me) {
+        if (me.st.phase === "draw") me.emit("draw", { from: "closed" });
+        else {
+          // discard the newest card that isn't blocked
+          const hand = me.st.yourHand;
+          const pick = hand[hand.length - 1];
+          me.emit("discard", { id: pick.id });
+        }
+      }
+      await sleep(6);
+      const st = A.st;
+      if (st && st.closedCount <= 2) sawLow = true;
+      if (sawLow && st && st.closedCount > prevClosed + 10) { sawRefill = true; break; }
+      if (st) prevClosed = st.closedCount;
+    }
+    if (!sawLow) throw new Error("closed pile never ran low");
+    if (!sawRefill) throw new Error("reshuffle never refilled the closed pile");
+    console.log("PASS reshuffle — closed pile refilled from discards");
+    A.emit("leave"); B.emit("leave"); A.close(); B.close();
+
+    /* ---- Test C: solver-assisted humans play to a REAL valid declare, then rematch ---- */
+    const X = mk("X"), Y = mk("Y"); await sleep(250);
+    let c3 = null; X.on("joined", (j) => { c3 = j.code; });
+    X.emit("create", { name: "X", playerId: "rx", avatar: "🦊" }); await sleep(250);
+    Y.emit("join", { code: c3, name: "Y", playerId: "ry", avatar: "🐼" }); await sleep(250);
+    X.emit("start"); await sleep(300);
+
+    async function smartTurn(me) {
+      const st = me.st;
+      if (st.phase === "draw") {
+        // take the open card if it makes the 14-card hand winnable, else closed
+        me.emit("draw", { from: Math.random() < 0.25 ? "open" : "closed" });
+        return;
+      }
+      const hand = st.yourHand;
+      for (const cand of hand) {
+        if (cand.id === st.pickedOpenId) continue;
+        const kept = hand.filter((c) => c.id !== cand.id);
+        const win = eng.bestArrangement(kept, st.wildRank, 15000);
+        if (win) { me.emit("declare", { discardId: cand.id, groups: win.groups }); return; }
+      }
+      // discard highest-point non-useful card
+      const scored = hand.filter((c) => c.id !== st.pickedOpenId)
+        .map((c) => ({ c, p: eng.cardPoints(c, st.wildRank) }))
+        .sort((a, b) => b.p - a.p);
+      me.emit("discard", { id: scored[0].c.id });
+    }
+    let done = false;
+    for (let k = 0; k < 6000; k++) {
+      if (X.st && X.st.status === "over") { done = true; break; }
+      const me = [X, Y].find((c) => myTurn(c));
+      if (me) await smartTurn(me);
+      await sleep(8);
+    }
+    if (!done) throw new Error("solver game never finished");
+    const fin = X.st;
+    if (fin.winner == null) throw new Error("no winner");
+    const wres = fin.results.find((x) => x.seat === fin.winner);
+    const lres = fin.results.find((x) => x.seat !== fin.winner);
+    if (wres.points !== 0) throw new Error("winner should score 0");
+    if (!(lres.points >= 0 && lres.points <= 80)) throw new Error("loser points out of range: " + lres.points);
+    if (fin.results[0].seat !== fin.winner) throw new Error("results not sorted, winner first");
+    console.log(`PASS valid declare wins — winner 0 pts, loser ${lres.points} pts`);
+
+    // rematch
+    const host = [X, Y].find((c) => c.seat === c.st.hostSeat);
+    host.emit("rematch");
+    await until(() => X.st.status === "playing" && X.st.yourHand.length === 13 && Y.st.yourHand.length === 13, 300, "rematch redeal");
+    console.log("PASS rematch — fresh deal of 13");
+    for (const c of [X, Y]) if (c.leaks.length) throw new Error(c.nm + " leak: " + c.leaks[0]);
+    X.close(); Y.close();
+
+    /* ---- Test D: host + bot game (bots draw/discard, may declare only validly) ---- */
+    const Hh = mk("H"); await sleep(250);
+    let c4 = null; Hh.on("joined", (j) => { c4 = j.code; });
+    Hh.emit("create", { name: "Host", playerId: "rh", avatar: "🦊" }); await sleep(250);
+    Hh.emit("addBot"); await sleep(250);
+    Hh.emit("start"); await sleep(300);
+    // human mirrors the solver strategy; bot plays itself
+    let overD = false;
+    for (let k = 0; k < 6000; k++) {
+      if (Hh.st && Hh.st.status === "over") { overD = true; break; }
+      if (myTurn(Hh)) await smartTurnH(Hh);
+      await sleep(8);
+    }
+    async function smartTurnH(me) {
+      const st = me.st;
+      if (st.phase === "draw") { me.emit("draw", { from: "closed" }); return; }
+      const hand = st.yourHand;
+      for (const cand of hand) {
+        if (cand.id === st.pickedOpenId) continue;
+        const kept = hand.filter((c) => c.id !== cand.id);
+        const win = eng.bestArrangement(kept, st.wildRank, 15000);
+        if (win) { me.emit("declare", { discardId: cand.id, groups: win.groups }); return; }
+      }
+      const scored = hand.filter((c) => c.id !== st.pickedOpenId)
+        .map((c) => ({ c, p: eng.cardPoints(c, st.wildRank) })).sort((a, b) => b.p - a.p);
+      me.emit("discard", { id: scored[0].c.id });
+    }
+    if (!overD) throw new Error("bot game stalled");
+    if (Hh.st.winner == null) throw new Error("bot game no winner");
+    console.log("PASS bot game to completion — winner: " + Hh.st.players[Hh.st.winner].name);
+    Hh.close();
+
+    console.log("ALL RUMMY TESTS PASS");
+    process.exit(0);
+  } catch (e) { console.error("FAIL:", e.message); process.exit(1); }
+})();
