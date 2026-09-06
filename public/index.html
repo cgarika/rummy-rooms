@@ -13,6 +13,9 @@
   }
   html, body, *{ scrollbar-width:none; }
   ::-webkit-scrollbar{ width:0; height:0; display:none; }
+  #wildline{ font-size:14.5px; font-weight:800; color:var(--txt); }
+  :where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible{ outline:3px solid #ffcd3c; outline-offset:3px; }
+  @media (prefers-reduced-motion:reduce){ *, *::before, *::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important; } }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
   body{
     margin:0; min-height:100vh; color:var(--txt);
@@ -294,7 +297,7 @@
     <div class="loose" id="loose"></div>
     <div class="handactions">
       <button class="btn plain small" id="sortBtn">Sort</button>
-      <button class="btn blue small" id="groupBtn">Group ▸ new</button>
+      <button class="btn blue small" id="groupBtn">Group selected</button>
       <button class="btn plain small" id="ungroupBtn">Ungroup</button>
       <button class="btn gold small" id="discardBtn">Discard</button>
       <button class="btn green small" id="declareBtn">DECLARE</button>
@@ -618,7 +621,7 @@ function renderGame(r){
   else if (me && me.left) $("actionhint").innerHTML = "You left this game.";
   else if (canDraw) $("actionhint").innerHTML = "Tap the <b>closed pile</b> or the <b>open pile</b> to draw.";
   else if (inDiscard) $("actionhint").innerHTML = "Select one card, then <b>Discard</b> — or <b>DECLARE</b> if your melds are ready.";
-  else $("actionhint").innerHTML = "Group your cards while you wait — tap cards, then <b>Group ▸ new</b>.";
+  else $("actionhint").innerHTML = "While you wait: tap cards to select them, then tap <b>Group</b> to make a sequence or a set.";
   $("log").textContent = r.log || "";
 
   $("overbox").classList.toggle("hidden", r.status!=="over");
