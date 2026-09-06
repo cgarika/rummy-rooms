@@ -172,6 +172,8 @@
   .grp.valid-set .gtag{ color:var(--yellow); border-color:rgba(255,194,51,.5); }
   .grp.invalid .gtag{ color:#ff8a8a; border-color:rgba(255,87,87,.4); }
   .loose{ display:flex; flex-wrap:wrap; gap:6px; justify-content:center; padding:12px 6px 8px; }
+  /* phones: seven cards per row so a 13-card hand is 7 + 6, never 6 + 6 + a stray */
+  @media (max-width:430px){ .loose{ gap:4px; padding:12px 0 8px; } .loose .pc{ width:48px; height:70px; } }
   .handactions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:10px; }
   .handactions .btn{ width:auto; }
   .actionhint{ width:100%; max-width:620px; text-align:center; font-size:13.5px; font-weight:700; color:var(--mut); margin-top:10px; min-height:20px; }
@@ -619,7 +621,7 @@ function renderGame(r){
   if (r.status==="over") $("actionhint").innerHTML = "";
   else if (me && me.out) $("actionhint").innerHTML = "Wrong declare — you're out of this one. 80 points.";
   else if (me && me.left) $("actionhint").innerHTML = "You left this game.";
-  else if (canDraw) $("actionhint").innerHTML = "Tap the <b>closed pile</b> or the <b>open pile</b> to draw.";
+  else if (canDraw) $("actionhint").innerHTML = localStorage.getItem("rmDrewOnce") ? "" : "Tap the <b>closed pile</b> or the <b>open pile</b> to draw.";   // taught once; the piles speak for themselves after that
   else if (inDiscard) $("actionhint").innerHTML = "Select one card, then <b>Discard</b> — or <b>DECLARE</b> if your melds are ready.";
   else $("actionhint").innerHTML = "While you wait: tap cards to select them, then tap <b>Group</b> to make a sequence or a set.";
   $("log").textContent = r.log || "";
@@ -677,11 +679,11 @@ $("sortBtn").onclick = ()=>{ SEL.clear(); if(S.room) renderGame(S.room); };
 
 $("drawpile").onclick = ()=>{
   const r=S.room; if(!r||!myTurn(r)||r.phase!=="draw") return;
-  socket.emit("draw",{ from:"closed" });
+  localStorage.setItem("rmDrewOnce","1"); socket.emit("draw",{ from:"closed" });
 };
 $("openfan").addEventListener("click",(e)=>{
   const r=S.room; if(!r||!myTurn(r)||r.phase!=="draw") return;
-  if (e.target.closest("#openTop")) socket.emit("draw",{ from:"open" });
+  if (e.target.closest("#openTop")) { localStorage.setItem("rmDrewOnce","1"); socket.emit("draw",{ from:"open" }); }
 });
 
 function flyToOpen(id){
