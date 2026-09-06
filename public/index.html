@@ -49,7 +49,7 @@
     border:none; cursor:pointer; font-family:inherit; color:#fff;
     transition:transform .12s var(--ease); box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 22px rgba(0,0,0,.35); }
   .btn:active{ transform:translateY(2px) scale(.985); }
-  .btn:disabled{ opacity:.45; }
+  .btn:disabled{ opacity:.4 !important; filter:saturate(.35); box-shadow:none !important; }   /* an unavailable action never looks tappable */
   .btn.gold{ background:linear-gradient(180deg,#ffd257,#f5a91b); color:#241a00; box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 24px rgba(255,194,51,.4); }
   .btn.blue{ background:linear-gradient(180deg,#6f9aff,#4a76ea); box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 24px rgba(91,140,255,.4); }
   .btn.green{ background:linear-gradient(180deg,#4fe08f,#1ea75c); box-shadow:0 3px 0 rgba(0,0,0,.3), 0 10px 24px rgba(51,209,122,.35); }
@@ -566,7 +566,7 @@ function renderGame(r){
   $("gameCode").textContent = "· " + r.code;
   $("strip").innerHTML = r.players.map((p,i)=>`
     <div class="pill${i===r.turn&&r.status==="playing"?" turn":""}${p.left||p.out?" gone":""}">
-      ${p.left?"💀":p.out?"❌":p.avatar} ${esc(p.name)}${p.bot?" 🤖":""}
+      ${p.left?"💀":p.out?"❌":p.avatar} ${i===S.mySeat?"You":esc(p.name)}${p.bot?" 🤖":""}
       <span class="cnt">${p.count}</span>
     </div>`).join("");
   $("turnwho").textContent = r.status==="playing"
@@ -577,8 +577,8 @@ function renderGame(r){
   $("wildpeek").innerHTML = w ? cardHTML(w, "big") : "";
   $("deckCount").textContent = r.closedCount + " in the closed pile";
   $("wildline").innerHTML = w ? (w.s==="J"
-    ? `wildcard: <b>printed joker — ACES are wild</b>`
-    : `wildcard: <b>every ${RNAME[r.wildRank]}</b> plays as a joker`) : "";
+    ? `Wild cards: <b>printed jokers — and every Ace is wild</b>`
+    : `Wild cards: <b>every ${({A:"Ace",J:"Jack",Q:"Queen",K:"King"})[RNAME[r.wildRank]] || RNAME[r.wildRank]}</b> is wild — plays as a joker`) : "";
   const canDraw = myTurn(r) && r.phase==="draw";
   $("drawpile").classList.toggle("glow", canDraw);
   const fan = $("openfan");
