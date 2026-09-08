@@ -427,13 +427,14 @@ function startServer() {
 
   function setupGame(room) {
     const deck = shuffle(buildDeck());
-    room.players.forEach((p) => { p.left = p.left || false; p.out = false; p.dropPoints = 0; });
+    room.players.forEach((p) => { p.left = p.left || false; p.out = !!p.pooledOut; p.dropPoints = 0; });   // T15: pooled-out players sit this one out
+    room.totalsById = room.totalsById || {};
     room.hands = room.players.map(() => []);
     room.drew = room.players.map(() => 0);   // T7: turns on which each seat drew a card (first-turn drop = 20, later = 40)
     room.groups = room.players.map(() => []);
     for (let k = 0; k < 13; k++)
       for (let i = 0; i < room.players.length; i++)
-        if (!room.players[i].left) room.hands[i].push(deck.pop());
+        if (!room.players[i].left && !room.players[i].out) room.hands[i].push(deck.pop());
     let wild = deck.pop();
     room.wildCard = wild;
     room.wildRank = wild.s === "J" ? 1 : wild.r;
@@ -532,6 +533,7 @@ function startServer() {
     room.phase = "over";
     room.winner = declarerSeat;
     room.results = room.players.map((p, i) => {
+      if (p.pooledOut) return { seat: i, points: 0, sat: true };
       if (i === declarerSeat) return { seat: i, points: 0, declared: true };
       if (p.out && p.dropPoints) return { seat: i, points: p.dropPoints, dropped: true };
       if (p.out) return { seat: i, points: 80, wrong: true };
@@ -539,6 +541,16 @@ function startServer() {
       return { seat: i, points: scoreHand(room.hands[i], room.groups[i], room.wildRank) };
     }).sort((a, b) => a.points - b.points);
     room.log = `${room.players[declarerSeat].name} declared — VALID! ${room.players[declarerSeat].name.toUpperCase()} WINS! 🎉`;
+    // T15: running totals across deals; in a pool game a player is out once they cross the pool, last one standing wins the match
+    room.totalsById = room.totalsById || {};
+    for (const r of room.results) { const p = room.players[r.seat]; if (!p.left && !r.sat) room.totalsById[p.id] = (room.totalsById[p.id] || 0) + r.points; r.total = room.totalsById[p.id] || 0; }
+    if (room.pool) {
+      const crossed = [];
+      for (const p of room.players) if (!p.left && !p.pooledOut && (room.totalsById[p.id] || 0) >= room.pool) { p.pooledOut = true; crossed.push(p.name); }
+      if (crossed.length) room.log += ` ${crossed.join(" and ")} crossed the ${room.pool} pool and ${crossed.length === 1 ? "is" : "are"} out.`;
+      const inPlay = room.players.filter((p) => !p.left && !p.pooledOut);
+      if (inPlay.length === 1) { room.champion = room.players.indexOf(inPlay[0]); room.log += ` ${inPlay[0].name} wins the pool! 🏆`; }
+    }
     clearT(timers, room.code); clearT(botTimers, room.code);
   }
 
@@ -587,11 +599,12 @@ function startServer() {
       openTop: room.open && room.open.length ? room.open.slice(-4) : [],
       closedCount: room.closed ? room.closed.length : 0,
       log: room.log, winner: room.winner, results: room.results,
+      pool: room.pool || 0, totals: room.players.map((p) => (room.totalsById && room.totalsById[p.id]) || 0), champion: room.champion ?? null,
       hostSeat: room.players.findIndex((p) => p.id === room.host),
       lastMove: room.lastMove, phaseEndsAt: room.phaseEndsAt || null,
       maxPlayers: MAX_PLAYERS,
       players: room.players.map((p, i) => ({
-        name: p.name, avatar: p.avatar, bot: !!p.bot, botControlled: !!p.botControlled, left: p.left, out: !!p.out, connected: p.connected,
+        name: p.name, avatar: p.avatar, bot: !!p.bot, botControlled: !!p.botControlled, left: p.left, out: !!p.out, connected: p.connected, pooledOut: !!p.pooledOut,
         count: room.hands && room.hands[i] ? room.hands[i].length : 0,
       })),
       yourHand: room.hands && seat >= 0 && room.hands[seat] ? room.hands[seat] : [],
@@ -794,6 +807,14 @@ function startServer() {
       bump(room);
     });
 
+    socket.on("settings", ({ pool } = {}) => {   // T15: pool game (101 / 201) or single deals (0), host in the lobby
+      const room = currentRoom();
+      if (!room || room.status !== "lobby" || room.host !== socket.data.playerId) return;
+      if (![0, 101, 201].includes(pool)) return;
+      room.pool = pool; room.totalsById = {}; room.champion = null;
+      room.log = pool ? `Pool game to ${pool}: cross it and you're out; last one standing wins.` : "Single deals — every game stands alone.";
+      bump(room);
+    });
     socket.on("start", () => {
       const room = currentRoom();
       if (!room || room.status !== "lobby" || room.host !== socket.data.playerId) return;
@@ -930,6 +951,9 @@ function startServer() {
       if (!room || room.status !== "over" || room.host !== socket.data.playerId) return;
       room.players = room.players.filter((p) => !p.left);
       if (room.players.filter((p) => !p.bot).length === 0) { deleteRoom(room.code); return; }
+      if (room.champion != null || room.players.filter((p) => !p.pooledOut).length < 2) {   // T15: the pool is settled → fresh match
+        room.totalsById = {}; room.champion = null; room.players.forEach((p) => { p.pooledOut = false; });
+      }
       if (room.players.length < 2) { room.status = "lobby"; room.phase = "lobby"; room.log = "Back to the lobby."; bump(room); return; }
       setupGame(room);
       bump(room);

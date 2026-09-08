@@ -456,6 +456,46 @@ async function until(fn, cap, why) {
           console.log("PASS T7 middle drop = 40"); r.forEach((c) => c.close()); }
       } finally { srv.kill(); }
     }
+    /* ---- Test G (T15): pool game — totals carry across deals, crossing the pool knocks you out, last one standing wins ---- */
+    {
+      const { spawn } = require("child_process");
+      const P = 3441, URL2 = "http://localhost:" + P;
+      const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(P), BOT_MS: "5", TEST_HOOKS: "1", TURN_MS: "60000" }, stdio: "ignore" });
+      await sleep(600);
+      const mk2 = (name) => { const c = io(URL2, { transports: ["websocket"], reconnection: false }); c.nm = name; c.st = null; c.seat = -1; c.on("state", ({ room, mySeat }) => { c.st = room; c.seat = mySeat; }); return c; };
+      const wait = async (fn, ms = 4000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await sleep(15); } return false; };
+      try {
+        const A = mk2("A"), B = mk2("B"); await sleep(250); let code = null; A.on("joined", (j) => { code = j.code; });
+        A.emit("create", { name: "A", playerId: "poolA" + Math.random(), avatar: "🦊" }); await wait(() => code); B.emit("join", { code, name: "B", playerId: "poolB" + Math.random(), avatar: "🐼" }); await wait(() => A.st && A.st.players.length === 2);
+        B.emit("settings", { pool: 101 }); await sleep(150); if (A.st.pool) throw new Error("T15: non-host set the pool");
+        A.emit("settings", { pool: 101 }); await wait(() => A.st.pool === 101); if (A.st.pool !== 101) throw new Error("T15: host could not set the pool");
+        const win13 = [[4,"S"],[5,"S"],[6,"S"],[7,"H"],[8,"H"],[9,"H"],[10,"C"],[10,"D"],[10,"S"],[2,"D"],[3,"D"],[4,"D"],[5,"D"]].map(([r,s]) => ({ r, s }));
+        const junk = [[2,"S"],[4,"S"],[6,"S"],[8,"H"],[10,"H"],[12,"H"],[3,"D"],[5,"D"],[7,"D"],[9,"C"],[11,"C"],[13,"C"],[1,"H"]].map(([r,s]) => ({ r, s }));
+        const dealAndWin = async () => {
+          await wait(() => A.st && A.st.status === "playing" && A.st.yourHand.length === 13);
+          A.emit("__test", { hands: { [A.seat]: win13, [B.seat]: junk } }); await wait(() => A.st.yourHand.every((c) => win13.some((w) => w.r === c.r && w.s === c.s)));
+          const cur = A.st.turn === A.seat ? A : B;
+          if (cur === B) { B.emit("draw", { from: "closed" }); await wait(() => B.st.phase === "discard"); const id = B.st.yourHand.find((c) => c.id !== B.st.pickedOpenId).id; B.emit("discard", { id }); await wait(() => A.st.turn === A.seat); }
+          const ids13 = new Set(A.st.yourHand.map((c) => c.id));
+          A.emit("draw", { from: "closed" }); await wait(() => A.st.phase === "discard" && A.st.yourHand.length === 14);
+          const drawn = A.st.yourHand.find((c) => !ids13.has(c.id)); const kept = A.st.yourHand.filter((c) => c.id !== drawn.id);
+          const win = eng.bestArrangement(kept, A.st.wildRank, 30000); if (!win) throw new Error("T15: crafted hand not winnable (wild " + A.st.wildRank + ")");
+          A.emit("declare", { discardId: drawn.id, groups: win.groups }); if (!(await wait(() => A.st.status === "over"))) throw new Error("T15: declare did not end the deal");
+        };
+        A.emit("start"); await dealAndWin();
+        const tB1 = A.st.totals[B.seat]; if (!(tB1 > 0 && tB1 <= 80) || A.st.totals[A.seat] !== 0) throw new Error("T15: totals after deal 1 wrong: " + A.st.totals);
+        if (A.st.champion != null || A.st.players[B.seat].pooledOut) throw new Error("T15: nobody should be out after one deal");
+        A.emit("rematch"); await dealAndWin();
+        const tB2 = A.st.totals[B.seat]; if (tB2 <= tB1) throw new Error("T15: totals did not carry across deals (" + tB1 + " → " + tB2 + ")");
+        if (tB2 >= 101 && !(A.st.players[B.seat].pooledOut && A.st.champion === A.seat)) throw new Error("T15: crossing the pool should knock B out and crown A: " + JSON.stringify({ tB2, pooledOut: A.st.players[B.seat].pooledOut, champion: A.st.champion }));
+        if (tB2 < 101) { A.emit("rematch"); await dealAndWin(); if (!(A.st.players[B.seat].pooledOut && A.st.champion === A.seat)) throw new Error("T15: B should be out after crossing 101 (total " + A.st.totals[B.seat] + ")"); }
+        const rB = A.st.results.find((x) => x.seat === B.seat); if (typeof rB.total !== "number") throw new Error("T15: results carry no totals");
+        console.log("PASS T15 pool 101 — totals carry across deals (" + tB1 + " → " + A.st.totals[B.seat] + "), B knocked out, A wins the pool");
+        A.emit("rematch"); await wait(() => A.st.status === "playing"); if (A.st.totals.some((t) => t !== 0) || A.st.champion != null || A.st.players.some((p) => p.pooledOut)) throw new Error("T15: new match should reset totals and pooled-out flags");
+        console.log("PASS T15 rematch after the pool is settled starts a fresh match");
+        A.close(); B.close();
+      } finally { srv.kill(); }
+    }
     console.log("ALL RUMMY TESTS PASS");
     process.exit(0);
   } catch (e) { console.error("FAIL:", e.message); process.exit(1); }

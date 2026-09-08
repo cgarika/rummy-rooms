@@ -265,6 +265,9 @@
     <div class="label mt12">Bots</div>
     <div class="tokrow" id="botrow"></div>
     <div class="setnote">Bots draw, discard and will only declare a genuinely valid hand.</div>
+    <div class="label mt12">Scoring</div>
+    <div class="tokrow" id="poolrow"></div>
+    <div class="setnote" id="poolnote"></div>
     <button class="btn gold mt18" id="startBtn">Deal the cards</button>
     <button class="btn plain small mt10" id="howtoBtn1">How to play</button>
     <button class="btn plain small mt10" id="leaveLobbyBtn">Leave</button>
@@ -530,6 +533,7 @@ $("botrow").addEventListener("click",(e)=>{
   else if (e.target.closest("#delBotBtn")) socket.emit("removeBot");
 });
 $("startBtn").onclick = ()=>socket.emit("start");
+$("poolrow").addEventListener("click",(e)=>{ const b=e.target.closest("[data-pool]"); if(b) socket.emit("settings",{ pool:Number(b.dataset.pool) }); });
 $("leaveLobbyBtn").onclick = ()=>{ socket.emit("leave"); localStorage.removeItem("rmRoom"); show("home"); };
 $("leaveGameBtn").onclick = ()=>{ if(confirm("Leave the game?")){ socket.emit("leave"); localStorage.removeItem("rmRoom"); leaveVoice(); show("home"); } };
 for (const id of ["howtoBtn1","howtoBtn2"]) $(id).onclick = ()=>$("howtoModal").classList.remove("hidden");
@@ -548,6 +552,11 @@ function renderLobby(r){
   $("botrow").innerHTML = isHost
     ? `<button class="tokbtn" id="addBotBtn">🤖 Add a bot</button>` + (r.players.some(p=>p.bot)?`<button class="tokbtn" id="delBotBtn">Remove bot</button>`:"")
     : "";
+  const pool=r.pool||0;
+  $("poolrow").innerHTML = isHost
+    ? [[0,"Single deals"],[101,"Pool 101"],[201,"Pool 201"]].map(([v,l])=>`<button class="tokbtn${pool===v?" on":""}" data-pool="${v}">${l}</button>`).join("")
+    : `<span class="setnote">${pool?"Pool game to "+pool:"Single deals"}</span>`;
+  $("poolnote").textContent = pool ? `Points add up across deals. Cross ${pool} and you're out — the last player standing wins the pool.` : "Each deal stands alone. Pick a pool to play a longer match.";
   $("startBtn").classList.toggle("hidden", !isHost);
   $("startBtn").disabled = r.players.length < 2;
 }
@@ -637,9 +646,10 @@ function renderGame(r){
 
   $("overbox").classList.toggle("hidden", r.status!=="over");
   if (r.status==="over"){
-    $("winname").textContent = r.players[r.winner] ? r.players[r.winner].name + " wins!" : "Game over";
+    $("winname").textContent = r.champion!=null ? r.players[r.champion].name + " wins the pool! 🏆" : r.players[r.winner] ? r.players[r.winner].name + " wins!" : "Game over";
     $("standings").innerHTML = (r.results||[]).map((x,rank)=>`
-      <div class="standing"><span>#${rank+1} ${esc(r.players[x.seat].name)}${x.wrong?" (wrong declare)":x.dropped?" (dropped)":x.left?" (left)":""}</span><span>${x.points} pts</span></div>`).join("");
+      <div class="standing"><span>#${rank+1} ${esc(r.players[x.seat].name)}${x.wrong?" (wrong declare)":x.dropped?" (dropped)":x.sat?" (out of the pool)":x.left?" (left)":""}</span><span>${x.sat?"—":x.points+" pts"}${r.pool?` · total ${x.total??(r.totals?r.totals[x.seat]:0)}${r.players[x.seat].pooledOut?" ✕":""}`:""}</span></div>`).join("");
+    $("rematchBtn").textContent = r.champion!=null ? "New match" : r.pool ? "Next deal" : "Deal again";
     $("rematchBtn").classList.toggle("hidden", S.mySeat !== r.hostSeat);
   }
   drawMsgs(r);
