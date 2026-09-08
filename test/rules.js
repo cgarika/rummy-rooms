@@ -320,6 +320,39 @@ async function until(fn, cap, why) {
     console.log("PASS bot game to completion — winner: " + Hh.st.players[Hh.st.winner].name);
     Hh.close();
 
+    /* ---- Test E (T1 AFK policy): own fast-clock server on 3421 ---- */
+    {
+      const { spawn } = require("child_process");
+      const TURN = 700, AFK = 250, P = 3421, URL2 = "http://localhost:" + P;
+      const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(P), TURN_MS: String(TURN), AFK_MS: String(AFK), BOT_MS: "5" }, stdio: "ignore" });
+      await sleep(600);
+      const mk2 = (name) => { const c = io(URL2, { transports: ["websocket"], reconnection: false }); c.nm = name; c.st = null; c.seat = -1; c.logs = []; c.on("state", ({ room, mySeat }) => { c.st = room; c.seat = mySeat; if (room && room.log) c.logs.push(room.log); }); return c; };
+      const wait = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await sleep(15); } return false; };
+      const room2 = async () => { const A = mk2("A"), B = mk2("B"); let code = null; A.on("joined", (j) => { code = j.code; }); await sleep(200); A.emit("create", { name: "A", playerId: "afkA" + Math.random(), avatar: "🦊" }); await wait(() => code, 2000); B.emit("join", { code, name: "B", playerId: "afkB" + Math.random(), avatar: "🐼" }); await wait(() => B.st && B.st.players.length === 2, 2000); A.emit("start"); await wait(() => A.st && A.st.status === "playing", 2000); return { A, B }; };
+      const driveH = (me) => { const st = me.st; if (!st || st.status !== "playing" || st.turn !== me.seat) return; if (st.phase === "draw") { me.emit("draw", { from: "closed" }); return; } const hand = st.yourHand; for (const cand of hand) { if (cand.id === st.pickedOpenId) continue; const win = eng.bestArrangement(hand.filter((c) => c.id !== cand.id), st.wildRank, 8000); if (win) { me.emit("declare", { discardId: cand.id, groups: win.groups }); return; } } const scored = hand.filter((c) => c.id !== st.pickedOpenId).map((c) => ({ c, p: eng.cardPoints(c, st.wildRank) })).sort((a, b) => b.p - a.p); me.emit("discard", { id: scored[0].c.id }); };
+      try {
+        // E1: the current player disconnects → the turn is auto-played on the AFK clock
+        { const { A, B } = await room2(); const first = A.st.turn; const gone = first === 0 ? A : B, W = first === 0 ? B : A; gone.disconnect(); const t0 = Date.now();
+          if (!(await wait(() => W.st && W.st.turn !== first, TURN + 800))) throw new Error("AFK: disconnected player's turn was not auto-played"); const dt = Date.now() - t0; if (dt >= TURN) throw new Error("AFK: fired on the normal clock (" + dt + " ms)");
+          if (!(await wait(() => W.logs.some((l) => /played for them/.test(l)), 600))) throw new Error("AFK: no timeout note");
+          console.log("PASS AFK 5s clock — auto-played after " + dt + " ms (normal " + TURN + ")"); W.disconnect(); }
+        // E2: idle but connected: 3 timeouts → botControlled; takeSeat and a real action hand it back
+        { const { A, B } = await room2(); A.on("state", () => setTimeout(() => driveH(A), 10)); const idle = B.seat;
+          if (!(await wait(() => B.st && B.st.players[idle].botControlled, TURN * 9))) throw new Error("AFK: seat never became botControlled");
+          if (B.st.players[idle].bot || B.st.players[idle].name !== "B") throw new Error("AFK: seat identity changed");
+          if (!(await wait(() => B.logs.some((l) => /playing for B/.test(l)), 500))) throw new Error("AFK: no takeover log");
+          B.emit("takeSeat"); if (!(await wait(() => !B.st.players[idle].botControlled, 1500))) throw new Error("AFK: takeSeat did not clear the flag");
+          if (!(await wait(() => B.st.players[idle].botControlled, TURN * 9))) throw new Error("AFK: seat did not flip a second time");
+          B.emit("draw", { from: "closed" }); if (!(await wait(() => !B.st.players[idle].botControlled, 1500))) throw new Error("AFK: a human action did not clear the flag");
+          console.log("PASS AFK takeover after 3 timeouts, takeSeat + action hand it back"); A.disconnect(); B.disconnect(); }
+        // E3: a bot-controlled seat completes a whole game
+        { const { A, B } = await room2(); A.on("state", () => setTimeout(() => driveH(A), 5)); const idle = B.seat; B.disconnect();
+          if (!(await wait(() => A.st && A.st.status === "over", 90000))) throw new Error("AFK: game with a bot-controlled seat stalled");
+          if (!A.st.players[idle].botControlled) throw new Error("AFK: absent seat never became bot-controlled");
+          console.log("PASS AFK bot-controlled seat finished a full game — winner " + A.st.players[A.st.winner].name); A.disconnect(); }
+      } finally { srv.kill(); }
+    }
+
     console.log("ALL RUMMY TESTS PASS");
     process.exit(0);
   } catch (e) { console.error("FAIL:", e.message); process.exit(1); }

@@ -293,6 +293,7 @@
   </div>
   <div class="wildline" id="wildline"></div>
   <div class="actionhint" id="actionhint"></div>
+  <button class="btn hidden" id="seatBackBtn" style="width:auto;margin:6px auto 0;display:block" onclick="socket.emit('takeSeat')">Take my seat back</button>
   <div class="handwrap">
     <div class="handlabel"><span>Your hand</span><span id="handCount"></span></div>
     <div class="groups" id="groupsBox"></div>
@@ -566,7 +567,7 @@ function renderGame(r){
   $("gameCode").textContent = "· " + r.code;
   $("strip").innerHTML = r.players.map((p,i)=>`
     <div class="pill${i===r.turn&&r.status==="playing"?" turn":""}${p.left||p.out?" gone":""}">
-      ${p.left?"💀":p.out?"❌":p.avatar} ${i===S.mySeat?"You":esc(p.name)}${p.bot?" 🤖":""}
+      ${p.left?"💀":p.out?"❌":p.avatar} ${i===S.mySeat?"You":esc(p.name)}${p.bot?" 🤖":""}${p.botControlled?' <span class="cnt" title="A bot is playing this seat">🤖 bot</span>':""}
       <span class="cnt">${p.count}</span>
     </div>`).join("");
   $("turnwho").textContent = r.status==="playing"
@@ -618,7 +619,9 @@ function renderGame(r){
   $("ungroupBtn").disabled = SEL.size===0;
 
   const me = r.players[S.mySeat];
+  $("seatBackBtn").classList.toggle("hidden", !(me && me.botControlled && r.status==="playing"));
   if (r.status==="over") $("actionhint").innerHTML = "";
+  else if (me && me.botControlled) $("actionhint").innerHTML = "A bot is playing for you — <b>take your seat back</b> when you are ready.";
   else if (me && me.out) $("actionhint").innerHTML = "Wrong declare — you're out of this one. 80 points.";
   else if (me && me.left) $("actionhint").innerHTML = "You left this game.";
   else if (canDraw) $("actionhint").innerHTML = localStorage.getItem("rmDrewOnce") ? "" : "Tap the <b>closed pile</b> or the <b>open pile</b> to draw.";   // taught once; the piles speak for themselves after that
