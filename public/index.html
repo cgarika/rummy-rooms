@@ -302,6 +302,7 @@
       <button class="btn plain small" id="sortBtn">Sort</button>
       <button class="btn blue small" id="groupBtn">Group selected</button>
       <button class="btn plain small" id="ungroupBtn">Ungroup</button>
+      <button class="btn plain small hidden" id="dropBtn" title="Give up this hand: 20 points on your first turn, 40 after">Drop</button>
       <button class="btn gold small" id="discardBtn">Discard</button>
       <button class="btn green small" id="declareBtn">DECLARE</button>
     </div>
@@ -349,7 +350,7 @@
       <p><b>Melds:</b> a <b>sequence</b> is 3+ cards of one suit in a row (A-2-3 and Q-K-A both count). A <b>set</b> is 3–4 cards of the same rank in different suits.</p>
       <p><b>Jokers:</b> two printed jokers, plus every card of the <b>wildcard rank</b> (shown by the closed pile) stands in for anything. A wildcard used as its own rank still keeps a sequence pure.</p>
       <p><b>To win:</b> you need at least <b>2 sequences</b>, and one must be <b>pure</b> (no jokers). The rest must be valid sets or sequences. Group your cards, select one to throw, and hit <b>DECLARE</b>.</p>
-      <p><b>Scoring:</b> losers count the cards outside their valid melds (A and faces 10, jokers 0), capped at 80. A wrong declare is an instant 80.</p>
+      <p><b>Scoring:</b> losers count the cards outside their valid melds (A and faces 10, jokers 0), capped at 80. A wrong declare is an instant 80. <b>Drop</b> before drawing to cut your losses: 20 on your first turn, 40 later. Leaving mid-game counts 40. Jokers on the open pile can't be picked up.</p>
     </div>
     <button class="btn gold mt12" id="howtoClose">Got it</button>
   </div>
@@ -615,6 +616,10 @@ function renderGame(r){
   const inDiscard = myTurn(r) && r.phase==="discard";
   $("discardBtn").disabled = !(inDiscard && SEL.size===1 && ![...SEL].includes(r.pickedOpenId));
   $("declareBtn").disabled = !(inDiscard && SEL.size===1 && ![...SEL].includes(r.pickedOpenId));
+  if (r.status==="playing" && S.lastStatus!=="playing") S.drewThisGame=false;   // new deal: the next drop is a first-turn drop again
+  if (myTurn(r) && r.phase==="discard") S.drewThisGame=true;
+  S.lastStatus=r.status;
+  $("dropBtn").classList.toggle("hidden", !canDraw);
   $("groupBtn").disabled = SEL.size===0;
   $("ungroupBtn").disabled = SEL.size===0;
 
@@ -622,6 +627,7 @@ function renderGame(r){
   $("seatBackBtn").classList.toggle("hidden", !(me && me.botControlled && r.status==="playing"));
   if (r.status==="over") $("actionhint").innerHTML = "";
   else if (me && me.botControlled) $("actionhint").innerHTML = "A bot is playing for you — <b>take your seat back</b> when you are ready.";
+  else if (me && me.out && r.lastMove && r.lastMove.kind==="drop" && r.lastMove.seat===S.mySeat) $("actionhint").innerHTML = "You dropped — sit tight until this hand ends.";
   else if (me && me.out) $("actionhint").innerHTML = "Wrong declare — you're out of this one. 80 points.";
   else if (me && me.left) $("actionhint").innerHTML = "You left this game.";
   else if (canDraw) $("actionhint").innerHTML = localStorage.getItem("rmDrewOnce") ? "" : "Tap the <b>closed pile</b> or the <b>open pile</b> to draw.";   // taught once; the piles speak for themselves after that
@@ -633,7 +639,7 @@ function renderGame(r){
   if (r.status==="over"){
     $("winname").textContent = r.players[r.winner] ? r.players[r.winner].name + " wins!" : "Game over";
     $("standings").innerHTML = (r.results||[]).map((x,rank)=>`
-      <div class="standing"><span>#${rank+1} ${esc(r.players[x.seat].name)}${x.wrong?" (wrong declare)":x.left?" (left)":""}</span><span>${x.points} pts</span></div>`).join("");
+      <div class="standing"><span>#${rank+1} ${esc(r.players[x.seat].name)}${x.wrong?" (wrong declare)":x.dropped?" (dropped)":x.left?" (left)":""}</span><span>${x.points} pts</span></div>`).join("");
     $("rematchBtn").classList.toggle("hidden", S.mySeat !== r.hostSeat);
   }
   drawMsgs(r);
@@ -716,6 +722,11 @@ $("discardBtn").onclick = ()=>{
   flyToOpen(id);
   SEL.clear();
   socket.emit("discard",{ id });
+};
+$("dropBtn").onclick = ()=>{
+  const r=S.room; if(!r||!myTurn(r)||r.phase!=="draw") return;
+  const pts = S.drewThisGame ? 40 : 20;
+  if (confirm(`Drop this hand for ${pts} points? (first turn 20, later 40)`)) socket.emit("drop");
 };
 $("declareBtn").onclick = ()=>{
   const r=S.room; if(!r||!myTurn(r)||r.phase!=="discard"||SEL.size!==1) return;

@@ -333,8 +333,9 @@ function startServer() {
 
   function setupGame(room) {
     const deck = shuffle(buildDeck());
-    room.players.forEach((p) => { p.left = p.left || false; p.out = false; });
+    room.players.forEach((p) => { p.left = p.left || false; p.out = false; p.dropPoints = 0; });
     room.hands = room.players.map(() => []);
+    room.drew = room.players.map(() => 0);   // T7: turns on which each seat drew a card (first-turn drop = 20, later = 40)
     room.groups = room.players.map(() => []);
     for (let k = 0; k < 13; k++)
       for (let i = 0; i < room.players.length; i++)
@@ -381,6 +382,7 @@ function startServer() {
   function doDraw(room, seat, from) {
     if (from === "open") {
       if (room.open.length === 0) return false;
+      if (isJoker(room.open[room.open.length - 1], room.wildRank)) return false;   // T7: jokers can't be picked up from the open pile
       const c = room.open.pop();
       room.hands[seat].push(c);
       room.pickedOpenId = c.id;
@@ -394,7 +396,26 @@ function startServer() {
       room.lastMove = { seat, kind: "draw" };
       room.log = `${room.players[seat].name} drew from the closed pile.`;
     }
+    if (room.drew) room.drew[seat] = (room.drew[seat] || 0) + 1;
     room.phase = "discard";
+    return true;
+  }
+
+  /* T7: drop — give up the hand before drawing. 20 points on your first turn, 40 after that. */
+  function dropPointsFor(room, seat) { return room.drew && room.drew[seat] ? 40 : 20; }
+  function doDrop(room, seat) {
+    if (room.phase !== "draw" || room.turn !== seat) return false;
+    const p = room.players[seat];
+    if (!p || p.out || p.left) return false;
+    const pts = dropPointsFor(room, seat);
+    p.out = true; p.dropPoints = pts;
+    room.lastMove = { seat, kind: "drop" };
+    room.log = `${p.name} dropped for ${pts} points.`;
+    const act = activeSeats(room);
+    if (act.length === 1) {
+      finishGame(room, act[0]);
+      room.log = `${room.players[act[0]].name} is the last one standing — they win!`;
+    } else nextTurn(room);
     return true;
   }
 
@@ -418,8 +439,9 @@ function startServer() {
     room.winner = declarerSeat;
     room.results = room.players.map((p, i) => {
       if (i === declarerSeat) return { seat: i, points: 0, declared: true };
+      if (p.out && p.dropPoints) return { seat: i, points: p.dropPoints, dropped: true };
       if (p.out) return { seat: i, points: 80, wrong: true };
-      if (p.left) return { seat: i, points: 80, left: true };
+      if (p.left) return { seat: i, points: 40, left: true };   // T7: leaving mid-game costs a middle drop, not a wrong declare
       return { seat: i, points: scoreHand(room.hands[i], room.groups[i], room.wildRank) };
     }).sort((a, b) => a.points - b.points);
     room.log = `${room.players[declarerSeat].name} declared — VALID! ${room.players[declarerSeat].name.toUpperCase()} WINS! 🎉`;
@@ -704,7 +726,22 @@ function startServer() {
       if (seat !== room.turn) return;
       if (from !== "open" && from !== "closed") return;
       if (doDraw(room, seat, from)) { bump(room); armTimer(room.code); }
+      else if (from === "open" && room.open.length && isJoker(room.open[room.open.length - 1], room.wildRank)) socket.emit("err", "You can't pick up a joker from the open pile.");
       else socket.emit("err", "That pile is empty.");
+    });
+
+    socket.on("drop", () => {   // T7
+      const room = currentRoom();
+      if (!room || room.status !== "playing") return;
+      { const self = room.players[mySeat(room)]; if (self && humanIsBack(room, self, "took the seat back")) bump(room); }
+      const seat = mySeat(room);
+      if (seat !== room.turn || room.phase !== "draw") return socket.emit("err", "You can only drop on your turn, before drawing.");
+      if (doDrop(room, seat)) { bump(room); if (room.status === "playing") armTimer(room.code); }
+    });
+    if (process.env.TEST_HOOKS === "1") socket.on("__test", ({ openTop } = {}) => {   // test-only: put a specific card on the open pile
+      const room = currentRoom(); if (!room || room.status !== "playing") return;
+      if (openTop && typeof openTop === "object") room.open.push({ id: 900000 + crypto.randomInt(99999), s: String(openTop.s), r: Number(openTop.r) || 0 });
+      bump(room);
     });
 
     socket.on("discard", ({ id } = {}) => {

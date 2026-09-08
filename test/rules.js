@@ -376,6 +376,54 @@ async function until(fn, cap, why) {
         cs.forEach(c=>c.disconnect());
       } finally { srv.kill(); }
     }
+    /* ---- Test F (T7): no joker pickup from the open pile, drop 20/40, leaving costs 40 ---- */
+    {
+      const { spawn } = require("child_process");
+      const P = 3431, URL2 = "http://localhost:" + P;
+      const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(P), BOT_MS: "5", TEST_HOOKS: "1" }, stdio: "ignore" });
+      await sleep(600);
+      const mk2 = (name) => { const c = io(URL2, { transports: ["websocket"], reconnection: false }); c.nm = name; c.st = null; c.seat = -1; c.errs = []; c.on("state", ({ room, mySeat }) => { c.st = room; c.seat = mySeat; }); c.on("err", (m) => c.errs.push(m)); return c; };
+      const wait = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await sleep(15); } return false; };
+      const boot = async (n) => { const cs = []; for (let i = 0; i < n; i++) cs.push(mk2("F" + i)); await sleep(250); let code = null; cs[0].on("joined", (j) => { code = j.code; }); cs[0].emit("create", { name: "F0", playerId: "f0" + Math.random(), avatar: "🦊" }); await wait(() => code, 2000); for (let i = 1; i < n; i++) cs[i].emit("join", { code, name: "F" + i, playerId: "f" + i + Math.random(), avatar: "🐼" }); await wait(() => cs[0].st && cs[0].st.players.length === n, 2000); cs[0].emit("start"); await wait(() => cs.every((c) => c.st && c.st.status === "playing" && c.st.yourHand.length === 13), 2000); return cs; };
+      const onTurn = (cs) => cs.find((c) => c.st.turn === c.seat);
+      const drawDiscard = async (c) => { c.emit("draw", { from: "closed" }); await wait(() => c.st.phase === "discard" && c.st.turn === c.seat, 1500); const id = c.st.yourHand.find((x) => x.id !== c.st.pickedOpenId).id; c.emit("discard", { id }); await wait(() => c.st.turn !== c.seat, 1500); };
+      try {
+        // joker on top of the open pile: printed joker, then a wildcard-rank card
+        const cs = await boot(3);
+        for (const jk of [{ s: "J", r: 0 }, { s: "S", r: cs[0].st.wildRank === 1 ? 1 : cs[0].st.wildRank }]) {
+          const cur = onTurn(cs); const v = cur.st.v;
+          cur.emit("__test", { openTop: jk }); await wait(() => cur.st.openTop[cur.st.openTop.length - 1].s === jk.s && cur.st.openTop[cur.st.openTop.length - 1].r === jk.r, 1500);
+          const n = cur.errs.length; cur.emit("draw", { from: "open" });
+          if (!(await wait(() => cur.errs.length > n, 1500))) throw new Error("T7: no error when picking a joker from the open pile");
+          if (cur.st.phase !== "draw" || cur.st.yourHand.length !== 13) throw new Error("T7: joker was picked up from the open pile");
+          if (!/joker/i.test(cur.errs[n])) throw new Error("T7: unexpected error text: " + cur.errs[n]);
+          await drawDiscard(cur);   // move on: closed draw still works with the joker sitting on top
+        }
+        console.log("PASS T7 jokers (printed + wildcard rank) can't be picked up from the open pile");
+        cs.forEach((c) => c.close());
+        // first-turn drop = 20 (player who has not drawn yet), middle drop = 40 (player who already drew); fresh rooms for exactness
+        { const r = await boot(3); const cur = onTurn(r); cur.emit("drop"); if (!(await wait(() => cur.st.players[cur.seat].out && cur.st.turn !== cur.seat, 1500))) throw new Error("T7: first-turn drop not applied");
+          const other = onTurn(r); const third = r.find((c) => c !== cur && c !== other);
+          // dropping when it is not your turn / not the draw phase is refused
+          const n = third.errs.length; third.emit("drop"); await wait(() => third.errs.length > n, 800); if (third.st.players[third.seat].out) throw new Error("T7: drop accepted off-turn");
+          other.emit("draw", { from: "closed" }); await wait(() => other.st.phase === "discard", 1500);
+          const n2 = other.errs.length; other.emit("drop"); await wait(() => other.errs.length > n2, 800); if (other.st.players[other.seat].out) throw new Error("T7: drop accepted after drawing");
+          const id = other.st.yourHand.find((x) => x.id !== other.st.pickedOpenId).id; other.emit("discard", { id }); await wait(() => other.st.turn === third.seat, 1500);
+          third.emit("leave"); if (!(await wait(() => other.st.status === "over", 1500))) throw new Error("T7: game did not end when the last opponent left");
+          const res = other.st.results; const dropRow = res.find((x) => x.seat === cur.seat), leftRow = res.find((x) => x.seat === third.seat);
+          if (!dropRow || dropRow.points !== 20 || !dropRow.dropped) throw new Error("T7: first-turn drop should score 20: " + JSON.stringify(dropRow));
+          if (!leftRow || leftRow.points !== 40 || !leftRow.left) throw new Error("T7: leaving mid-game should score 40: " + JSON.stringify(leftRow));
+          console.log("PASS T7 first-turn drop = 20, off-turn/after-draw drop refused, leaving mid-game = 40"); r.forEach((c) => c.close()); }
+        { const r = await boot(3); const cur = onTurn(r); await drawDiscard(cur);   // cur has drawn once → its next drop is a middle drop
+          let guard = 0; while (onTurn(r) !== cur && guard++ < 4) await drawDiscard(onTurn(r));
+          if (onTurn(r) !== cur) throw new Error("T7: turn never came back");
+          cur.emit("drop"); if (!(await wait(() => cur.st.players[cur.seat].out, 1500))) throw new Error("T7: middle drop not applied");
+          const rest = r.filter((c) => c !== cur); rest[0].emit("leave"); await wait(() => rest[1].st.status === "over", 1500);
+          const row = rest[1].st.results.find((x) => x.seat === cur.seat);
+          if (!row || row.points !== 40 || !row.dropped) throw new Error("T7: middle drop should score 40: " + JSON.stringify(row));
+          console.log("PASS T7 middle drop = 40"); r.forEach((c) => c.close()); }
+      } finally { srv.kill(); }
+    }
     console.log("ALL RUMMY TESTS PASS");
     process.exit(0);
   } catch (e) { console.error("FAIL:", e.message); process.exit(1); }
