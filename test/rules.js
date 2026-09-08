@@ -21,7 +21,35 @@ function C(str) { // "5S" "10H" "AS" "KD" "JK" (printed joker)
 const H = (...ss) => ss.map(C);
 function assert(cond, msg) { if (!cond) throw new Error("UNIT FAIL: " + msg); }
 
+function t11Unit() {
+  const dw = (cards, wild) => eng.deadwood(cards, wild);
+  // three hands
+  assert(dw(H("4S", "5S", "6S", "9H", "9D", "9C", "KD", "2C"), 3) === 12, "deadwood: pure run + set leave K + 2 = 12");
+  assert(dw(H("4S", "5S", "JK", "7H", "7D", "7C", "QS", "KS", "AS"), 3) === 0, "deadwood: joker-filled run + set + ace-high run = 0");
+  assert(dw(H("5S", "6S", "7S", "8S", "5H", "5D"), 3) === 0, "deadwood: chooses set 5-5-5 + run 6-7-8 over the 4-run (0, not 10)");
+  assert(dw(H("2S", "4S", "6S", "8H", "10H", "QH", "3D", "5D", "7D", "9C", "JC", "KC", "AC", "JK"), 9) === 35, "deadwood: two jokers (JK + wild 9C) placed where they meld the most (35)");
+  // declare: every finish card is tried — here the only winning throws are 'useful' cards the old top-3 rule never reached
+  const win13 = H("4S", "5S", "6S", "7H", "8H", "9H", "10C", "10D", "10S", "2D", "3D", "4D", "5D");
+  const hand14 = win13.concat(H("10H"));   // 10H pairs with the tens → 'useful' → sorted last by the old heuristic
+  const fin = eng.botFinishCard(hand14, 6, null);
+  assert(fin, "declare: a finish card is found");
+  const kept = hand14.filter((c) => c.id !== fin.id);
+  assert(eng.validateDeclare(kept, fin.groups, 6).valid, "declare: the chosen finish leaves a valid declare");
+  assert(eng.botFinishCard(H("2S", "4S", "6S", "8H", "10H", "QH", "3D", "5D", "7D", "9C", "JC", "KC", "AC", "JK"), 3, null) === null, "declare: no finish for a junk hand");
+  const picked = hand14.find((c) => c.r === 10 && c.s === "H");
+  assert(eng.botFinishCard(hand14, 6, picked.id) === null || eng.botFinishCard(hand14, 6, picked.id).id !== picked.id, "declare: never finishes with the card just picked up");
+  // discard: lowest resulting deadwood, dumping the higher loose card on ties
+  const d = eng.botDiscardCard(H("4S", "5S", "6S", "9H", "9D", "9C", "KD", "2C"), 3, null);
+  assert(d.r === 13 && d.s === "D", "discard: throws the loose K, not a melded card (got " + d.r + d.s + ")");
+  // open pile: only when it lowers deadwood
+  assert(eng.botWantsOpen(H("4S", "5S", "9H", "KD", "2C"), C("6S"), 3) === true, "open pile: 6S completes 4-5-6 → take it");
+  assert(eng.botWantsOpen(H("4S", "5S", "9H", "KD", "2C"), C("JD"), 3) === false, "open pile: JD helps nothing → leave it");
+  assert(eng.botWantsOpen(H("4S", "5S", "9H", "KD", "2C"), C("JK"), 3) === false, "open pile: jokers are never taken (T7)");
+  console.log("PASS T11 deadwood on four hands, finish card tried across the whole hand, discard by deadwood, open-pile only when it helps");
+}
+
 function unitTests() {
+  t11Unit();
   const vm = (cards, wild) => eng.validMeld(cards, wild);
   // ---- pure sequences ----
   assert(vm(H("4S", "5S", "6S"), 9).type === "pure", "4-5-6 same suit pure");
@@ -324,7 +352,7 @@ async function until(fn, cap, why) {
     {
       const { spawn } = require("child_process");
       const TURN = 700, AFK = 250, P = 3421, URL2 = "http://localhost:" + P;
-      const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(P), TURN_MS: String(TURN), AFK_MS: String(AFK), BOT_MS: "5" }, stdio: "ignore" });
+      const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(P), TURN_MS: String(TURN), AFK_MS: String(AFK), BOT_MS: "5", TEST_HOOKS: "1" }, stdio: "ignore" });
       await sleep(600);
       const mk2 = (name) => { const c = io(URL2, { transports: ["websocket"], reconnection: false }); c.nm = name; c.st = null; c.seat = -1; c.logs = []; c.on("state", ({ room, mySeat }) => { c.st = room; c.seat = mySeat; if (room && room.log) c.logs.push(room.log); }); return c; };
       const wait = async (fn, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await sleep(15); } return false; };
@@ -337,7 +365,11 @@ async function until(fn, cap, why) {
           if (!(await wait(() => W.logs.some((l) => /played for them/.test(l)), 600))) throw new Error("AFK: no timeout note");
           console.log("PASS AFK 5s clock — auto-played after " + dt + " ms (normal " + TURN + ")"); W.disconnect(); }
         // E2: idle but connected: 3 timeouts → botControlled; takeSeat and a real action hand it back
-        { const { A, B } = await room2(); A.on("state", () => setTimeout(() => driveH(A), 10)); const idle = B.seat;
+        { const { A, B } = await room2();
+          // junk hands for both seats so neither the driver nor the (now much smarter) bot can end the game before the third timeout
+          const junk = (sfx) => [[2,"S"],[4,"S"],[6,"S"],[8,"H"],[10,"H"],[12,"H"],[3,"D"],[5,"D"],[7,"D"],[9,"C"],[11,"C"],[13,"C"],[1,sfx]].map(([r,su])=>({ r, s: su }));
+          A.emit("__test", { hands: { [A.seat]: junk("D"), [B.seat]: junk("H") } }); await wait(() => A.st.yourHand.length === 13 && A.st.yourHand.every((c) => c.r !== 6 || c.s === "S"), 1500);
+          A.on("state", () => setTimeout(() => driveH(A), 10)); const idle = B.seat;
           if (!(await wait(() => B.st && B.st.players[idle].botControlled, TURN * 9))) throw new Error("AFK: seat never became botControlled");
           if (B.st.players[idle].bot || B.st.players[idle].name !== "B") throw new Error("AFK: seat identity changed");
           if (!(await wait(() => B.logs.some((l) => /playing for B/.test(l)), 500))) throw new Error("AFK: no takeover log");

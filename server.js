@@ -283,6 +283,100 @@ function bestArrangement(cards, wildRank, cap) {
 /* =========================================================
    SERVER
    ========================================================= */
+/* ---------- T11: deadwood evaluation for the bot ----------
+   deadwood = points of the cards left outside the best disjoint collection of valid melds.
+   Candidate melds are built directly (sets by rank, runs by suit, jokers filling holes) and each one is
+   confirmed with validMeld; a capped DFS then picks the disjoint collection that melds the most points. */
+function deadwood(cards, wildRank, cap) {
+  cap = cap || 20000;
+  const n = cards.length;
+  const pts = cards.map((c) => cardPoints(c, wildRank));
+  const total = pts.reduce((a, b) => a + b, 0);
+  if (n < 3 || total === 0) return total;
+  const jokerBits = cards.reduce((m, c, i) => (isJoker(c, wildRank) ? m | (1 << i) : m), 0);
+  const nJokers = cards.filter((c) => isJoker(c, wildRank)).length;
+  const JK = { id: -1, s: "J", r: 0 };
+  const melds = [];   // { mask (naturals), j (jokers needed), v (points melded) }
+  const seen = new Set();
+  const add = (idxs, j) => {
+    if (idxs.length + j < 3 || idxs.length + j > (idxs.length ? 5 : 3)) return;
+    let mask = 0, v = 0; for (const i of idxs) { mask |= 1 << i; v += pts[i]; }
+    if (v === 0) return;   // nothing to gain from melding jokers alone
+    const key = mask + ":" + j; if (seen.has(key)) return; seen.add(key);
+    const probe = idxs.map((i) => cards[i]); for (let k = 0; k < j; k++) probe.push(JK);
+    if (validMeld(probe, wildRank).valid) melds.push({ mask, j, v });
+  };
+  const nat = cards.map((c, i) => ({ c, i })).filter((x) => !isJoker(x.c, wildRank));
+  // sets: same rank, one card per suit
+  const byRank = {};
+  for (const x of nat) (byRank[x.c.r] = byRank[x.c.r] || {})[x.c.s] = byRank[x.c.r][x.c.s] ?? x.i;
+  for (const r of Object.keys(byRank)) {
+    const suits = Object.values(byRank[r]);
+    for (let m = 1; m < 1 << suits.length; m++) {
+      const idxs = suits.filter((_, k) => m & (1 << k));
+      for (let j = 0; j <= Math.min(nJokers, 4 - idxs.length); j++) if (idxs.length + j >= 3 && idxs.length + j <= 4) add(idxs, j);
+    }
+  }
+  // runs: same suit, consecutive ranks (ace low or high), jokers fill holes
+  const bySuit = {};
+  for (const x of nat) { const m = (bySuit[x.c.s] = bySuit[x.c.s] || {}); m[x.c.r] = m[x.c.r] ?? x.i; if (x.c.r === 1) m[14] = m[14] ?? x.i; }
+  for (const suit of Object.keys(bySuit)) {
+    const have = bySuit[suit];
+    for (let len = 3; len <= 5; len++) for (let a = 1; a + len - 1 <= 14; a++) {
+      const idxs = []; let j = 0;
+      for (let r = a; r < a + len; r++) { if (have[r] != null) idxs.push(have[r]); else j++; }
+      if (a <= 1 && a + len - 1 >= 14) continue;   // an ace can't be both ends
+      if (idxs.length && j <= nJokers && new Set(idxs).size === idxs.length) add(idxs, j);
+    }
+  }
+  melds.sort((a, b) => b.v - a.v);
+  let best = 0, nodes = 0;
+  const go = (k, mask, jUsed, acc) => {
+    if (acc > best) best = acc;
+    if (++nodes > cap) return;
+    for (let i = k; i < melds.length; i++) {
+      const m = melds[i];
+      if (m.mask & mask) continue;
+      const usedAsNatural = popcount((mask | m.mask) & jokerBits);
+      if (jUsed + m.j > nJokers - usedAsNatural) continue;
+      go(i + 1, mask | m.mask, jUsed + m.j, acc + m.v);
+    }
+  };
+  go(0, 0, 0, 0);
+  return total - best;
+}
+function popcount(x) { let c = 0; while (x) { x &= x - 1; c++; } return c; }
+/* the discard that leaves the lowest deadwood (ties: dump the higher card); never the card just picked up */
+function botDiscardCard(hand, wildRank, pickedOpenId) {
+  let best = null, bestDw = Infinity;
+  for (const c of hand) {
+    if (c.id === pickedOpenId) continue;
+    const dw = deadwood(hand.filter((x) => x.id !== c.id), wildRank);
+    if (dw < bestDw || (dw === bestDw && cardPoints(c, wildRank) > cardPoints(best, wildRank))) { bestDw = dw; best = c; }
+  }
+  return best || hand.find((c) => c.id !== pickedOpenId) || hand[0];
+}
+/* every finish card is tried: the first whose remaining 13 has zero deadwood AND validates as a declare */
+function botFinishCard(hand, wildRank, pickedOpenId) {
+  for (const c of hand) {
+    if (c.id === pickedOpenId) continue;
+    const kept = hand.filter((x) => x.id !== c.id);
+    if (kept.length !== 13 || deadwood(kept, wildRank) !== 0) continue;
+    const win = bestArrangement(kept, wildRank, 30000);
+    if (win) return { id: c.id, groups: win.groups };
+  }
+  return null;
+}
+/* take the open card only when it lowers deadwood (after the best discard that is not the card itself) */
+function botWantsOpen(hand, top, wildRank) {
+  if (!top || isJoker(top, wildRank)) return false;
+  const now = deadwood(hand, wildRank);
+  const withTop = hand.concat([top]);
+  let best = Infinity;
+  for (const c of hand) { const dw = deadwood(withTop.filter((x) => x.id !== c.id), wildRank); if (dw < best) best = dw; }
+  return best < now;
+}
+
 function startServer() {
   const express = require("express");
   const { Server } = require("socket.io");
@@ -619,22 +713,13 @@ function startServer() {
     const seat = room.turn;
     if (room.phase === "draw") {
       const top = room.open[room.open.length - 1];
-      const from = top && botUseful(room, seat, top) && !isJoker(top, room.wildRank) ? "open" : "closed";
+      const from = botWantsOpen(room.hands[seat], top, room.wildRank) ? "open" : "closed";
       if (!doDraw(room, seat, from)) { if (!doDraw(room, seat, from === "open" ? "closed" : "open")) { nextTurn(room); return; } }
     }
-    // try to win: for a few discard candidates, solve the kept 13
     const hand = room.hands[seat];
-    const candidates = hand
-      .filter((c) => c.id !== room.pickedOpenId)
-      .map((c) => ({ c, pts: cardPoints(c, room.wildRank), useful: botUseful(room, seat, c) }))
-      .sort((a, b) => (a.useful === b.useful ? b.pts - a.pts : a.useful ? 1 : -1));
-    for (const cand of candidates.slice(0, 3)) {
-      const kept = hand.filter((c) => c.id !== cand.c.id);
-      const win = bestArrangement(kept, room.wildRank, 30000);
-      if (win) { doDeclare(room, seat, cand.c.id, win.groups); return; }
-    }
-    const throwAway = candidates[0] || { c: hand.find((c) => c.id !== room.pickedOpenId) || hand[0] };
-    doDiscard(room, seat, throwAway.c.id);
+    const win = botFinishCard(hand, room.wildRank, room.pickedOpenId);
+    if (win) { doDeclare(room, seat, win.id, win.groups); return; }
+    doDiscard(room, seat, botDiscardCard(hand, room.wildRank, room.pickedOpenId).id);
   }
 
   /* ---------- sockets ---------- */
@@ -738,9 +823,10 @@ function startServer() {
       if (seat !== room.turn || room.phase !== "draw") return socket.emit("err", "You can only drop on your turn, before drawing.");
       if (doDrop(room, seat)) { bump(room); if (room.status === "playing") armTimer(room.code); }
     });
-    if (process.env.TEST_HOOKS === "1") socket.on("__test", ({ openTop } = {}) => {   // test-only: put a specific card on the open pile
+    if (process.env.TEST_HOOKS === "1") socket.on("__test", ({ openTop, hands } = {}) => {   // test-only: craft the open pile / hands
       const room = currentRoom(); if (!room || room.status !== "playing") return;
       if (openTop && typeof openTop === "object") room.open.push({ id: 900000 + crypto.randomInt(99999), s: String(openTop.s), r: Number(openTop.r) || 0 });
+      if (hands && typeof hands === "object") for (const [seat, cards] of Object.entries(hands)) if (room.hands[Number(seat)] && Array.isArray(cards)) { room.hands[Number(seat)] = cards.map((c) => ({ id: 900000 + crypto.randomInt(99999), s: String(c.s), r: Number(c.r) || 0 })); room.groups[Number(seat)] = []; }
       bump(room);
     });
 
@@ -903,6 +989,7 @@ function startServer() {
 module.exports = {
   buildDeck, isJoker, isPrintedJoker, cardPoints,
   validMeld, validateDeclare, scoreHand, bestArrangement,
+  deadwood, botDiscardCard, botFinishCard, botWantsOpen,
 };
 
 if (require.main === module) startServer();
