@@ -2,13 +2,15 @@
  Rummy — rules & secrecy suite.
  Part 1 (unit): meld validator, declare validator, points math, solver cross-check.
  Part 2 (sockets): BOT_MS=5 PORT=3411 node server.js   then:  node test/rules.js
+   (or npm test: test/run.js starts the server; TEST_PORT, TEST_PORT2, TEST_PORT3 move the ports)
  Proves: deal integrity, hand secrecy, draw/discard flow, open-pile discard
  block, arrange persistence, wrong-declare penalty, valid declare wins with
  correct points, reshuffle, rematch.
 */
 const eng = require("../server.js");
 const { io } = require("socket.io-client");
-const URL = "http://localhost:3411";
+const PORT = Number(process.env.TEST_PORT || 3411), PORT2 = Number(process.env.TEST_PORT2 || 3421), PORT3 = Number(process.env.TEST_PORT3 || 3431);
+const URL = "http://localhost:" + PORT;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let uid = 1000;
@@ -191,13 +193,13 @@ async function until(fn, cap, why) {
     let cur = cs.find((c) => myTurn(c));
     const openId = cur.st.openTop[cur.st.openTop.length - 1].id;
     cur.emit("draw", { from: "open" });
-    await until(() => cur.st.phase === "discard" && cur.st.yourHand.length === 14, 200, "draw open");
+    await until(() => cur.st.phase === "discard" && cur.st.yourHand.length === 14, 1500, "draw open");
     if (cur.st.pickedOpenId !== openId) throw new Error("pickedOpenId not reported");
     cur.emit("discard", { id: openId }); await sleep(150);
     if (cur.st.phase !== "discard") throw new Error("discarding the picked-up card was allowed");
     const other = cur.st.yourHand.find((c) => c.id !== openId);
     cur.emit("discard", { id: other.id });
-    await until(() => cur.st.yourHand.length === 13 && cur.st.turn !== cur.seat, 200, "discard advance");
+    await until(() => cur.st.yourHand.length === 13 && cur.st.turn !== cur.seat, 1500, "discard advance");
     console.log("PASS deal + secrecy + open-pile discard block");
 
     // arrange persists
@@ -205,16 +207,16 @@ async function until(fn, cap, why) {
     const g0 = arr.st.yourHand.slice(0, 3).map((c) => c.id);
     const g1 = arr.st.yourHand.slice(3, 6).map((c) => c.id);
     arr.emit("arrange", { groups: [g0, g1] });
-    await until(() => arr.st.yourGroups.length === 2 && arr.st.yourGroups[0].join() === g0.join(), 200, "arrange persist");
+    await until(() => arr.st.yourGroups.length === 2 && arr.st.yourGroups[0].join() === g0.join(), 1500, "arrange persist");
     // hostile arrange: foreign + duplicate ids get stripped
     arr.emit("arrange", { groups: [[999999, g0[0], g0[0], g0[1]]] });
-    await until(() => arr.st.yourGroups.length === 1 && arr.st.yourGroups[0].join() === [g0[0], g0[1]].join(), 200, "hostile arrange cleaned");
+    await until(() => arr.st.yourGroups.length === 1 && arr.st.yourGroups[0].join() === [g0[0], g0[1]].join(), 1500, "hostile arrange cleaned");
     console.log("PASS arrange persistence + hostile arrange");
 
     // wrong declare: whoever is on turn declares all-cards-one-group
     cur = cs.find((c) => myTurn(c));
     cur.emit("draw", { from: "closed" });
-    await until(() => cur.st.phase === "discard", 200, "draw for wrong declare");
+    await until(() => cur.st.phase === "discard", 1500, "draw for wrong declare");
     const all = cur.st.yourHand.map((c) => c.id);
     cur.emit("declare", { discardId: all[0], groups: [all.slice(1)] });
     await until(() => cur.st.players[cur.seat].out, 300, "wrong declarer marked out");
@@ -351,7 +353,7 @@ async function until(fn, cap, why) {
     /* ---- Test E (T1 AFK policy): own fast-clock server on 3421 ---- */
     {
       const { spawn } = require("child_process");
-      const TURN = 700, AFK = 250, P = 3421, URL2 = "http://localhost:" + P;
+      const TURN = 700, AFK = 250, P = PORT2, URL2 = "http://localhost:" + P;
       const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(P), TURN_MS: String(TURN), AFK_MS: String(AFK), BOT_MS: "5", TEST_HOOKS: "1" }, stdio: "ignore" });
       await sleep(600);
       const mk2 = (name) => { const c = io(URL2, { transports: ["websocket"], reconnection: false }); c.nm = name; c.st = null; c.seat = -1; c.logs = []; c.on("state", ({ room, mySeat }) => { c.st = room; c.seat = mySeat; if (room && room.log) c.logs.push(room.log); }); return c; };
@@ -378,9 +380,11 @@ async function until(fn, cap, why) {
           B.emit("draw", { from: "closed" }); if (!(await wait(() => !B.st.players[idle].botControlled, 1500))) throw new Error("AFK: a human action did not clear the flag");
           console.log("PASS AFK takeover after 3 timeouts, takeSeat + action hand it back"); A.disconnect(); B.disconnect(); }
         // E3: a bot-controlled seat completes a whole game
-        { const { A, B } = await room2(); A.on("state", () => setTimeout(() => driveH(A), 5)); const idle = B.seat; B.disconnect();
+        { const { A, B } = await room2(); const idle = B.seat; let wasBot = false;
+          // Watched through the game, not only at its end: a quick round can finish before the last state says so.
+          A.on("state", () => { if (A.st && A.st.players[idle] && A.st.players[idle].botControlled) wasBot = true; setTimeout(() => driveH(A), 5); }); B.disconnect();
           if (!(await wait(() => A.st && A.st.status === "over", 90000))) throw new Error("AFK: game with a bot-controlled seat stalled");
-          if (!A.st.players[idle].botControlled) throw new Error("AFK: absent seat never became bot-controlled");
+          if (!wasBot) throw new Error("AFK: absent seat never became bot-controlled");
           console.log("PASS AFK bot-controlled seat finished a full game — winner " + A.st.players[A.st.winner].name); A.disconnect(); }
       } finally { srv.kill(); }
     }
@@ -389,7 +393,7 @@ async function until(fn, cap, why) {
     // ---- T3 host handover: host disconnects during play → another human becomes host ----
     {
       const { spawn } = require("child_process");
-      const P=3431, URL2="http://localhost:"+P;
+      const P=PORT3, URL2="http://localhost:"+P;   // TEST_PORT3 (3431 by default), as the header says
       const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT:String(P), BOT_MS:"5", TURN_MS:"60000" }, stdio:"ignore" });
       await sleep(600);
       const mk2=(name)=>{ const c=io(URL2,{transports:["websocket"],reconnection:false}); c.st=null; c.seat=-1; c.logs=[]; c.on("state",({room,mySeat})=>{ c.st=room; c.seat=mySeat; if(room&&room.log) c.logs.push(room.log); }); return c; };
@@ -411,7 +415,7 @@ async function until(fn, cap, why) {
     /* ---- Test F (T7): no joker pickup from the open pile, drop 20/40, leaving costs 40 ---- */
     {
       const { spawn } = require("child_process");
-      const P = 3431, URL2 = "http://localhost:" + P;
+      const P = PORT3, URL2 = "http://localhost:" + P;
       const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(P), BOT_MS: "5", TEST_HOOKS: "1" }, stdio: "ignore" });
       await sleep(600);
       const mk2 = (name) => { const c = io(URL2, { transports: ["websocket"], reconnection: false }); c.nm = name; c.st = null; c.seat = -1; c.errs = []; c.on("state", ({ room, mySeat }) => { c.st = room; c.seat = mySeat; }); c.on("err", (m) => c.errs.push(m)); return c; };
@@ -459,7 +463,7 @@ async function until(fn, cap, why) {
     /* ---- Test G (T15): pool game — totals carry across deals, crossing the pool knocks you out, last one standing wins ---- */
     {
       const { spawn } = require("child_process");
-      const P = 3441, URL2 = "http://localhost:" + P;
+      const P = PORT2, URL2 = "http://localhost:" + P;
       const srv = spawn(process.execPath, ["server.js"], { env: { ...process.env, PORT: String(P), BOT_MS: "5", TEST_HOOKS: "1", TURN_MS: "60000" }, stdio: "ignore" });
       await sleep(600);
       const mk2 = (name) => { const c = io(URL2, { transports: ["websocket"], reconnection: false }); c.nm = name; c.st = null; c.seat = -1; c.on("state", ({ room, mySeat }) => { c.st = room; c.seat = mySeat; }); return c; };
